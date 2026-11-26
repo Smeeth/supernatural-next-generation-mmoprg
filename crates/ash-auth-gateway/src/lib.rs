@@ -11,7 +11,7 @@ use ash_core::character::{
 };
 use ash_core::error::DomainError;
 use ash_db::AshStore;
-use ash_protocol::framing::{read_frame, write_frame};
+use ash_protocol::framing::{read_frame, send_response_and_close};
 use ash_protocol::messages::{AuthRequest, AuthResponse, ZoneRoutingTicket};
 use ash_protocol::tls::build_quic_server;
 use quinn::Endpoint;
@@ -40,15 +40,14 @@ pub fn start_auth_gateway(config: AuthGatewayConfig, store: AshStore) -> Result<
             tokio::spawn(async move {
                 match incoming.await {
                     Ok(conn) => {
-                        while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                        while let Ok((send, mut recv)) = conn.accept_bi().await {
                             let store = store.clone();
                             let cfg = cfg.clone();
                             tokio::spawn(async move {
                                 match read_frame::<AuthRequest>(&mut recv).await {
                                     Ok(req) => {
                                         let resp = handle_auth_request(req, &store, &cfg).await;
-                                        let _ = write_frame(&mut send, &resp).await;
-                                        let _ = send.finish();
+                                        let _ = send_response_and_close(send, &resp).await;
                                     }
                                     Err(err) => {
                                         warn!("auth-gateway frame read error: {err:#}");

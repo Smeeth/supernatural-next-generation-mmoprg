@@ -4,7 +4,7 @@
 FROM rust:slim-bookworm AS builder
 WORKDIR /workspace
 
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
 COPY data ./data
 COPY crates ./crates
 

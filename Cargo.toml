@@ -17,8 +17,6 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
-authors = ["Ash-Net Systems Engineering"]
-repository = "https://example.org/ash-net-new-lawrence"
 
 [workspace.dependencies]
 ash-core = { path = "crates/ash-core" }

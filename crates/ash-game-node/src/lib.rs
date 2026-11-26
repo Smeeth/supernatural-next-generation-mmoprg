@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 use std::collections::HashMap;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +17,9 @@ use ash_core::world::{
     ZoneCatalog, ZoneDefinition,
 };
 use ash_db::{now_epoch_ms, AshStore};
-use ash_protocol::framing::{decode_datagram, encode_datagram, read_frame, rpc_call, write_frame};
+use ash_protocol::framing::{
+    decode_datagram, encode_datagram, read_frame, rpc_call, send_response_and_close,
+};
 use ash_protocol::messages::{
     AshTerminalReport, ClientDatagram, ClientReliableMessage, ClusterNodeInfo, CombatActionNet,
     EntityPositionNet, HandoverRedirectInfo, MeshMessage, MeshResponse, OmenAlertEvent,
@@ -188,9 +190,9 @@ pub struct RunningGameNode {
     pub mesh_endpoint: Endpoint,
 }
 
-fn resolve_socket_addr(addr_str: &str) -> Result<SocketAddr> {
-    addr_str
-        .to_socket_addrs()
+async fn resolve_socket_addr(addr_str: &str) -> Result<SocketAddr> {
+    tokio::net::lookup_host(addr_str)
+        .await
         .with_context(|| format!("resolve address '{addr_str}'"))?
         .next()
         .with_context(|| format!("no socket addr resolved for '{addr_str}'"))
@@ -306,13 +308,12 @@ pub async fn start_game_node(mut cfg: GameNodeConfig, store: AshStore) -> Result
                 let st = st.clone();
                 tokio::spawn(async move {
                     if let Ok(conn) = incoming.await {
-                        while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                        while let Ok((send, mut recv)) = conn.accept_bi().await {
                             let st = st.clone();
                             tokio::spawn(async move {
                                 if let Ok(msg) = read_frame::<MeshMessage>(&mut recv).await {
                                     let resp = handle_mesh_message(msg, st).await;
-                                    let _ = write_frame(&mut send, &resp).await;
-                                    let _ = send.finish();
+                                    let _ = send_response_and_close(send, &resp).await;
                                 }
                             });
                         }
@@ -356,7 +357,7 @@ pub async fn start_game_node(mut cfg: GameNodeConfig, store: AshStore) -> Result
                             });
 
                             // Reliable Bi-Stream Loop
-                            while let Ok((mut send, mut recv)) = conn.accept_bi().await {
+                            while let Ok((send, mut recv)) = conn.accept_bi().await {
                                 let st = st.clone();
                                 let c = conn.clone();
                                 tokio::spawn(async move {
@@ -364,8 +365,7 @@ pub async fn start_game_node(mut cfg: GameNodeConfig, store: AshStore) -> Result
                                         read_frame::<ClientReliableMessage>(&mut recv).await
                                     {
                                         let resp = handle_client_reliable(msg, c, st).await;
-                                        let _ = write_frame(&mut send, &resp).await;
-                                        let _ = send.finish();
+                                        let _ = send_response_and_close(send, &resp).await;
                                     }
                                 });
                             }
@@ -457,13 +457,14 @@ pub async fn start_game_node(mut cfg: GameNodeConfig, store: AshStore) -> Result
         });
     }
 
-    // 4. Mirror Gossip Sync Loop (verbindet sich per mTLS mit Hub)
+    // 4. Mirror Gossip Sync Loop (hält persistente mTLS-QUIC-Verbindung zum Hub)
     if cfg.role == NodeRole::Mirror {
         if let Some(hub_addr_str) = cfg.hub_mesh_addr.clone() {
             let st = state.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(2));
                 let mut registered = false;
+                let mut cached_hub_conn: Option<Connection> = None;
                 loop {
                     interval.tick().await;
                     let (mesh_client, announce_msg, hb_msg) = {
@@ -494,23 +495,39 @@ pub async fn start_game_node(mut cfg: GameNodeConfig, store: AshStore) -> Result
                         )
                     };
 
-                    if let Ok(hub_sock) = resolve_socket_addr(&hub_addr_str) {
-                        if let Ok(connecting) = mesh_client.connect(hub_sock, "ash-node") {
-                            if let Ok(conn) = connecting.await {
-                                let req = if !registered { announce_msg } else { hb_msg };
-                                if let Ok(MeshResponse::RoutingTable { nodes, routes }) =
-                                    rpc_call::<MeshMessage, MeshResponse>(&conn, &req).await
-                                {
-                                    registered = true;
-                                    let mut g = st.lock().await;
-                                    for n in nodes {
-                                        g.cluster_nodes.insert(n.node_id.clone(), n);
-                                    }
-                                    for r in routes {
-                                        g.cluster_routes.insert(r.zone_id.clone(), r);
-                                    }
+                    if cached_hub_conn
+                        .as_ref()
+                        .is_none_or(|c| c.close_reason().is_some())
+                    {
+                        registered = false;
+                        cached_hub_conn = None;
+                        if let Ok(hub_sock) = resolve_socket_addr(&hub_addr_str).await {
+                            if let Ok(connecting) = mesh_client.connect(hub_sock, "ash-node") {
+                                if let Ok(conn) = connecting.await {
+                                    cached_hub_conn = Some(conn);
                                 }
                             }
+                        }
+                    }
+
+                    if let Some(conn) = cached_hub_conn.as_ref() {
+                        let req = if !registered { announce_msg } else { hb_msg };
+                        match rpc_call::<MeshMessage, MeshResponse>(conn, &req).await {
+                            Ok(MeshResponse::RoutingTable { nodes, routes }) => {
+                                registered = true;
+                                let mut g = st.lock().await;
+                                for n in nodes {
+                                    g.cluster_nodes.insert(n.node_id.clone(), n);
+                                }
+                                for r in routes {
+                                    g.cluster_routes.insert(r.zone_id.clone(), r);
+                                }
+                            }
+                            Err(_) => {
+                                cached_hub_conn = None;
+                                registered = false;
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -669,7 +686,7 @@ async fn execute_irc_slash_in_ecs(
     command: IrcSlashCommand,
     st: Arc<Mutex<NodeSharedState>>,
 ) -> MeshResponse {
-    let mut g = st.lock().await;
+    let g = st.lock().await;
     let store = g.store.clone();
     let quest_cat = g.quest_catalog.clone();
 
@@ -1120,7 +1137,7 @@ async fn process_player_move(
             .await
             .staged_handovers
             .insert(handover_token.clone(), state);
-    } else if let Ok(peer_sock) = resolve_socket_addr(&route.mesh_addr) {
+    } else if let Ok(peer_sock) = resolve_socket_addr(&route.mesh_addr).await {
         if let Ok(connecting) = mesh_client.connect(peer_sock, "ash-node") {
             if let Ok(peer_conn) = connecting.await {
                 if let Ok(MeshResponse::PlayerHandoverAck {
@@ -1137,6 +1154,7 @@ async fn process_player_move(
                 {
                     target_client_addr = client_public_addr;
                 }
+                peer_conn.close(0u32.into(), b"handover_done");
             }
         }
     }
@@ -1323,7 +1341,7 @@ async fn trigger_zone_omen_change(
     // zusätzlich per mTLS an den Hub melden, damit `irc-bridge` ihn sofort in `#new_lawrence` postet!
     if should_alert && role == NodeRole::Mirror {
         if let Some(hub_str) = hub_addr {
-            if let Ok(sock) = resolve_socket_addr(&hub_str) {
+            if let Ok(sock) = resolve_socket_addr(&hub_str).await {
                 if let Ok(connecting) = mesh_client.connect(sock, "ash-node") {
                     if let Ok(conn) = connecting.await {
                         let _ = rpc_call::<MeshMessage, MeshResponse>(
@@ -1335,6 +1353,7 @@ async fn trigger_zone_omen_change(
                             },
                         )
                         .await;
+                        conn.close(0u32.into(), b"alert_sent");
                     }
                 }
             }

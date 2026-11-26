@@ -23,8 +23,8 @@ mod tests {
         BANISH_SHEEP_DURATION_SECS,
     };
     use crate::equipment::{
-        EquipmentItem, EquipmentLoadout, EquipmentSlot, EssenceSource, EssenceType, EssenceWallet,
-        ItemQuality, MaterialTag, WeaponArchetype,
+        EquipmentItem, EquipmentLoadout, EquipmentSlot, EssenceSource, EssenceType, ItemQuality,
+        MaterialTag, WeaponArchetype,
     };
     use crate::error::DomainError;
     use crate::world::{

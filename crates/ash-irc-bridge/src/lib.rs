@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -8,7 +8,7 @@ use ash_core::world::IrcSlashCommand;
 use ash_protocol::framing::rpc_call;
 use ash_protocol::messages::{MeshMessage, MeshResponse};
 use ash_protocol::tls::build_quic_client;
-use quinn::Endpoint;
+use quinn::{Connection, Endpoint};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -34,8 +34,9 @@ pub struct IrcBridgeConfig {
     pub key_pem: Vec<u8>,
 }
 
-fn resolve_addr(addr: &str) -> Result<SocketAddr> {
-    addr.to_socket_addrs()
+async fn resolve_addr(addr: &str) -> Result<SocketAddr> {
+    tokio::net::lookup_host(addr)
+        .await
         .with_context(|| format!("resolve '{addr}'"))?
         .next()
         .with_context(|| format!("no addr for '{addr}'"))
@@ -104,43 +105,56 @@ async fn run_bridge_session(cfg: &IrcBridgeConfig, mesh_client: &Endpoint) -> Re
         cfg.irc_addr, STANDARD_CHANNELS
     );
 
-    // Background Omen Alert Poller -> postet automatische Funk-Alarme in `#new_lawrence`!
+    // Background Omen Alert Poller -> hält eine persistente mTLS-QUIC-Verbindung zum Hub
     {
         let alert_tx = tx.clone();
         let hub_addr = cfg.hub_mesh_addr.clone();
         let mc = mesh_client.clone();
         tokio::spawn(async move {
             let mut last_seq = 0u64;
+            let mut cached_conn: Option<Connection> = None;
             let mut interval = tokio::time::interval(Duration::from_millis(400));
             loop {
                 interval.tick().await;
-                let Ok(sock) = resolve_addr(&hub_addr) else {
-                    continue;
-                };
-                let Ok(connecting) = mc.connect(sock, "ash-node") else {
-                    continue;
-                };
-                let Ok(conn) = connecting.await else {
-                    continue;
-                };
-                if let Ok(MeshResponse::OmenAlerts { alerts }) =
-                    rpc_call::<MeshMessage, MeshResponse>(
-                        &conn,
-                        &MeshMessage::PollOmenAlerts { since_seq: last_seq },
-                    )
-                    .await
+                if cached_conn
+                    .as_ref()
+                    .is_none_or(|c| c.close_reason().is_some())
                 {
-                    for ev in alerts {
-                        if ev.seq > last_seq {
-                            last_seq = ev.seq;
-                            if alert_tx
-                                .send(format!("PRIVMSG #new_lawrence :{}", ev.irc_alert_line))
-                                .is_err()
-                            {
-                                return;
+                    cached_conn = None;
+                    if let Ok(sock) = resolve_addr(&hub_addr).await {
+                        if let Ok(connecting) = mc.connect(sock, "ash-node") {
+                            if let Ok(conn) = connecting.await {
+                                cached_conn = Some(conn);
                             }
                         }
                     }
+                }
+                let Some(conn) = cached_conn.as_ref() else {
+                    continue;
+                };
+                match rpc_call::<MeshMessage, MeshResponse>(
+                    conn,
+                    &MeshMessage::PollOmenAlerts { since_seq: last_seq },
+                )
+                .await
+                {
+                    Ok(MeshResponse::OmenAlerts { alerts }) => {
+                        for ev in alerts {
+                            if ev.seq > last_seq {
+                                last_seq = ev.seq;
+                                if alert_tx
+                                    .send(format!("PRIVMSG #new_lawrence :{}", ev.irc_alert_line))
+                                    .is_err()
+                                {
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    Err(_) => {
+                        cached_conn = None;
+                    }
+                    _ => {}
                 }
             }
         });
@@ -213,7 +227,7 @@ async fn dispatch_slash_to_mesh(
     zone_id: &str,
     command: IrcSlashCommand,
 ) -> Result<(String, Option<String>)> {
-    let hub_sock = resolve_addr(hub_mesh_addr)?;
+    let hub_sock = resolve_addr(hub_mesh_addr).await?;
     let hub_conn = mesh_client.connect(hub_sock, "ash-node")?.await?;
 
     // Ermittle den zuständigen Zonen-Knoten dynamisch über die Gossip-Routing-Tabelle
@@ -226,14 +240,15 @@ async fn dispatch_slash_to_mesh(
         }
     }
 
-    let node_conn = if target_mesh_addr == hub_mesh_addr {
-        hub_conn
+    let (node_conn, extra_conn_to_close) = if target_mesh_addr == hub_mesh_addr {
+        (hub_conn.clone(), None)
     } else {
-        let sock = resolve_addr(&target_mesh_addr)?;
-        mesh_client.connect(sock, "ash-node")?.await?
+        let sock = resolve_addr(&target_mesh_addr).await?;
+        let c = mesh_client.connect(sock, "ash-node")?.await?;
+        (c.clone(), Some(c))
     };
 
-    match rpc_call::<MeshMessage, MeshResponse>(
+    let res = rpc_call::<MeshMessage, MeshResponse>(
         &node_conn,
         &MeshMessage::IrcSlashEvent {
             irc_nick: nick.to_string(),
@@ -243,8 +258,14 @@ async fn dispatch_slash_to_mesh(
             command,
         },
     )
-    .await?
-    {
+    .await;
+
+    if let Some(c) = extra_conn_to_close {
+        c.close(0u32.into(), b"slash_done");
+    }
+    hub_conn.close(0u32.into(), b"slash_done");
+
+    match res? {
         MeshResponse::IrcSlashHandled {
             reply_message,
             quest_updated,

@@ -37,6 +37,18 @@ pub async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T>
     bincode::deserialize(&buf).context("bincode deserialize frame")
 }
 
+/// Schreibt eine Antwort auf einen Server-`SendStream`, markiert `finish()` und wartet kurz,
+/// bis der Client den Empfang quittiert hat (verhindert vorzeitiges Stream-Reset beim Drop in `quinn 0.11`).
+pub async fn send_response_and_close<T: Serialize>(
+    mut send: SendStream,
+    msg: &T,
+) -> Result<()> {
+    write_frame(&mut send, msg).await?;
+    send.finish().context("finish QUIC response stream")?;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), send.stopped()).await;
+    Ok(())
+}
+
 /// Führt einen atomaren Request/Response-Austausch über einen eigenen bidirektionalen QUIC-Stream aus
 /// (verhindert Head-of-Line-Blocking zwischen unabhängigen Gameplay- und Mesh-Operationen).
 pub async fn rpc_call<Req: Serialize, Resp: DeserializeOwned>(
@@ -46,7 +58,8 @@ pub async fn rpc_call<Req: Serialize, Resp: DeserializeOwned>(
     let (mut send, mut recv) = conn.open_bi().await.context("open QUIC bi-stream")?;
     write_frame(&mut send, req).await?;
     send.finish().context("finish QUIC request stream")?;
-    read_frame(&mut recv).await
+    let resp = read_frame(&mut recv).await?;
+    Ok(resp)
 }
 
 /// Kodiert ein kompaktes Unreliable QUIC-Datagramm (für schnelle Bewegungs- und Positions-Updates).

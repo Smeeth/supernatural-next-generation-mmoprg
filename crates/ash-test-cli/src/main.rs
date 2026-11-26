@@ -3,7 +3,7 @@
 mod mini_ircd;
 
 use std::fs;
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -48,8 +48,8 @@ struct Args {
     ca_path: PathBuf,
 }
 
-fn resolve_endpoint_with_localhost_fallback(raw: &str) -> Result<SocketAddr> {
-    if let Ok(mut iter) = raw.to_socket_addrs() {
+async fn resolve_endpoint_with_localhost_fallback(raw: &str) -> Result<SocketAddr> {
+    if let Ok(mut iter) = tokio::net::lookup_host(raw).await {
         if let Some(addr) = iter.next() {
             return Ok(addr);
         }
@@ -69,7 +69,7 @@ pub async fn run_smoke_test_suite(
     ca_pem: &[u8],
 ) -> Result<()> {
     let client_ep: Endpoint = build_quic_client("0.0.0.0:0".parse()?, ca_pem, None)?;
-    let auth_sock = resolve_endpoint_with_localhost_fallback(auth_addr)?;
+    let auth_sock = resolve_endpoint_with_localhost_fallback(auth_addr).await?;
     let auth_conn = client_ep
         .connect(auth_sock, "ash-node")?
         .await
@@ -158,7 +158,7 @@ pub async fn run_smoke_test_suite(
         other => bail!("IssueZoneTicket failed: {other:?}"),
     };
 
-    let roadhouse_sock = resolve_endpoint_with_localhost_fallback(&ticket.target_client_addr)?;
+    let roadhouse_sock = resolve_endpoint_with_localhost_fallback(&ticket.target_client_addr).await?;
     let roadhouse_conn = client_ep.connect(roadhouse_sock, "ash-node")?.await?;
 
     match rpc_call::<ClientReliableMessage, ServerReliableMessage>(
@@ -286,7 +286,7 @@ pub async fn run_smoke_test_suite(
         bail!("Falsche Handover-Zielzone: {}", redirect.target_zone);
     }
 
-    let frontier_sock = resolve_endpoint_with_localhost_fallback(&redirect.target_client_addr)?;
+    let frontier_sock = resolve_endpoint_with_localhost_fallback(&redirect.target_client_addr).await?;
     let frontier_conn = client_ep.connect(frontier_sock, "ash-node")?.await?;
 
     match rpc_call::<ClientReliableMessage, ServerReliableMessage>(
@@ -376,6 +376,10 @@ pub async fn run_smoke_test_suite(
     }
 
     wait_for_irc_substring(&mut irc_lines, &mut irc_w, "OMEN-STUFE 2").await?;
+    // Schließe Client-Endpoints sauber, damit Prozess sofort terminiert
+    auth_conn.close(0u32.into(), b"done");
+    roadhouse_conn.close(0u32.into(), b"done");
+    frontier_conn.close(0u32.into(), b"done");
     info!("ALLE 8 END-TO-END SMOKE-TEST-PHASEN ERFOLGREICH BESTANDEN!");
     Ok(())
 }
@@ -511,11 +515,71 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ash_core::character::{CharacterClass, CharacterSheet, PlayableRace};
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn full_end_to_end_mesh_handover_and_irc_smoke_test() {
         run_self_contained_e2e()
             .await
             .expect("End-to-End Smoke Test must pass");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn verifies_crash_recovery_fallback_to_roadhouse() {
+        let pki = generate_ash_pki().unwrap();
+        let ca_bytes = pki.ca_cert_pem.into_bytes();
+        let cert_bytes = pki.node_cert_pem.into_bytes();
+        let key_bytes = pki.node_key_pem.into_bytes();
+
+        let store = AshStore::new_shared_in_memory();
+        let auth_ep = start_auth_gateway(
+            AuthGatewayConfig {
+                bind_addr: "127.0.0.1:0".parse().unwrap(),
+                cert_pem: cert_bytes,
+                key_pem: key_bytes,
+                roadhouse_fallback_client_addr: "127.0.0.1:4433".into(),
+                route_stale_timeout_ms: 5_000,
+            },
+            store.clone(),
+        )
+        .unwrap();
+
+        let acc_id = store.create_account("sam", "hash").await.unwrap();
+        let sess = store.create_session(acc_id).await.unwrap();
+        let mut ch = CharacterSheet::create_new_hunter(
+            acc_id,
+            "Sam_III",
+            PlayableRace::ManOfLetters,
+            CharacterClass::BannWaechter,
+        )
+        .unwrap();
+        // Simuliere einen Charakter, dessen letzter Raid-Knoten (`zone_hoellentor_alpha`) abgestürzt ist
+        ch.current_zone = "zone_hoellentor_alpha".into();
+        store.save_character(&ch).await.unwrap();
+
+        let client_ep = build_quic_client("0.0.0.0:0".parse().unwrap(), &ca_bytes, None).unwrap();
+        let conn = client_ep
+            .connect(auth_ep.local_addr().unwrap(), "ash-node")
+            .unwrap()
+            .await
+            .unwrap();
+
+        let resp = rpc_call::<AuthRequest, AuthResponse>(
+            &conn,
+            &AuthRequest::IssueZoneTicket {
+                session_token: sess,
+                character_id: ch.id,
+            },
+        )
+        .await
+        .unwrap();
+
+        match resp {
+            AuthResponse::ZoneTicketIssued { ticket } => {
+                assert_eq!(ticket.target_zone, STARTING_ZONE_ROADHOUSE);
+                assert!(ticket.fallback_to_roadhouse);
+            }
+            other => panic!("expected ZoneTicketIssued with fallback, got {other:?}"),
+        }
     }
 }
