@@ -1,0 +1,132 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Deterministische Sprint-1 Domain-Simulation in `ash-core` (0 I/O, fester Seed)
+
+id = "01-sim-invariants"
+description = "Verifiziert deterministisch in ash-core das Engel-/Dämonen-Verbot, Tank-Verbote, Fae-Eisen-Tabu, Hexen-Stahl-Verbot, 16-Slot-Startset, Essenz-Rabatt (Archivwissen) und Kern-Kampf-Invarianten."
+mode = "sim"
+min_sprint = 1
+seed = 20571126
+
+[[actors]]
+id = "fae_healer"
+name = "Mab_Avalon"
+race = "Fee"
+class = "Bann-Mönch"
+start_zone = "zone_roadhouse"
+
+[[actors]]
+id = "witch_pyro"
+name = "Rowena_II"
+race = "Hexe"
+class = "Salz-&-Benzin-Pyromant"
+start_zone = "zone_roadhouse"
+
+[[actors]]
+id = "mol_sniper"
+name = "Henry_MoL"
+race = "Mann der Schriften"
+class = "Winchester-Sniper"
+start_zone = "zone_roadhouse"
+
+[[steps]]
+action = "expect_rejected_creation"
+name = "CastielClone"
+race = "Engel"
+class = "Bann-Wächter"
+expected_reason = "ForbiddenSupernaturalOrigin"
+
+[[steps]]
+action = "expect_rejected_creation"
+name = "CrowleyClone"
+race = "Dämon"
+class = "Trickster-Köder"
+expected_reason = "ForbiddenSupernaturalOrigin"
+
+[[steps]]
+action = "expect_rejected_creation"
+name = "ShifterTank"
+race = "Gestaltwandler"
+class = "Eisen-Krieger"
+expected_reason = "TankRoleForbidden"
+
+[[steps]]
+action = "expect_rejected_creation"
+name = "WitchTank"
+race = "Hexe"
+class = "Bann-Wächter"
+expected_reason = "TankRoleForbidden"
+
+[[steps]]
+action = "expect_rejected_creation"
+name = "FaeTank"
+race = "Fee"
+class = "Blutdurst-Tank"
+expected_reason = "TankRoleForbidden"
+
+[[steps]]
+action = "register_and_create"
+actor = "fae_healer"
+
+[[steps]]
+action = "expect_16_gray_slots"
+actor = "fae_healer"
+
+[[steps]]
+action = "expect_equip_rejected"
+actor = "fae_healer"
+slot = 7
+item_name = "Kaltes Eisen-Schüreisen"
+material = "PureIron"
+weapon_archetype = "IronBladeOrRod"
+expected_error = "FaeIronTaboo"
+
+[[steps]]
+action = "register_and_create"
+actor = "witch_pyro"
+
+[[steps]]
+action = "expect_16_gray_slots"
+actor = "witch_pyro"
+
+[[steps]]
+action = "expect_equip_rejected"
+actor = "witch_pyro"
+slot = 7
+item_name = "Schwere Stahl-Kriegsmachete"
+material = "HeavySteel"
+weapon_archetype = "HeavyMeleeSteel"
+expected_error = "WitchHeavySteelTaboo"
+
+[[steps]]
+action = "register_and_create"
+actor = "mol_sniper"
+
+[[steps]]
+action = "assert_state"
+actor = "mol_sniper"
+expected_zone = "zone_roadhouse"
+min_slots = 16
+
+[[steps]]
+action = "grant_and_upgrade"
+actor = "mol_sniper"
+essence = "RockSaltAsh"
+amount = 4
+slot = 12
+expected_quality = "Green"
+
+[[steps]]
+action = "sim_combat_invariant"
+invariant = "tank_aggro_balance"
+
+[[steps]]
+action = "sim_combat_invariant"
+invariant = "banish_sheep_30s"
+
+[[steps]]
+action = "sim_combat_invariant"
+invariant = "pyromancer_wildfire_5m"
+
+[[steps]]
+action = "sim_combat_invariant"
+invariant = "sniper_and_cleric_and_trickster"

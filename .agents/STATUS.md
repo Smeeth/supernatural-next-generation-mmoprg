@@ -1,52 +1,46 @@
 # STATUS.md — Realer Projekt- & Architektur-Stand
 
-- **Aktuelle Phase:** Sprint 1, Sprint 1.5 & **Sprint 1.6 (Gate- & 3-Zonen-Cleanup) abgeschlossen**
-- **Gate-Status (`./scripts/check-invariants.sh`):** **GRÜN (Exit-Code 0)** — Bereit für Sprint 2 (`ACTIVE_SCOPE = SERVER + SHARED`)
-- **Nächster freigegebener Zonen-Scope:** `SERVER + SHARED` *(`ash-client-tui` bleibt bis Sprint 5 strikt gesperrt!)*
+- **Aktuelle Phase:** **Sprint 1.7 abgeschlossen – KI-Harness aktiv, bereit für Sprint 2 (`ACTIVE_SCOPE = SERVER + SHARED`)**
+- **Harness- & Gate-Status:**
+  - `./scripts/harness.sh gate`: **GRÜN (Exit-Code 0)** — 21 `.rs`-Dateien SPDX-konform, 3-Zonen-Graph sauber, 29 Governance-/Harness-Dateien geprüft, `fmt`/`clippy -D warnings` sauber, 15/15 Workspace-Tests grün.
+  - `./scripts/harness.sh sim`: **GRÜN (Exit-Code 0)** — `01-sim-invariants.toml` (18 Steps + `NDJSON`-Trace) bestanden; `02-combat-4role.template.toml` (`min_sprint = 2`) bei `CURRENT_SPRINT=1` sauber übersprungen.
+  - `./scripts/harness.sh e2e`: Konfiguriert über `docker-compose.harness.yml` (`tmpfs` für Postgres/Redis, Projekt `ash-harness`) + `00-smoke-mesh.toml` (Schema per Unit-Test validiert; in der lokalen WSL-Umgebung ist keine `docker`-CLI / kein Docker-Daemon installiert, In-Process-QUIC/IRC-E2E-Äquivalent läuft über `crates/ash-game-node/tests/cluster_e2e.rs` grün).
+- **Nächster freigegebener Zonen-Scope:** `SERVER + SHARED` gemäß [`.agents/tasks/sprint-2-breakdown.md`](tasks/sprint-2-breakdown.md) *(`ash-client-tui` bleibt bis Sprint 5 strikt gesperrt!)*
 
 ---
 
-## 1. Reales Cargo-Workspace-Inventar (7 Crates — 100 % 3-Zonen-konform)
+## 1. Reales Cargo-Workspace-Inventar (7 Crates — kein Crate-Wildwuchs)
 
 | Crate | Pfad | `[package.metadata.ash] zone` | Status & Tests | 3-Zonen-Graph-Status |
 | :--- | :--- | :---: | :--- | :--- |
-| `ash-core` | `crates/ash-core` | `shared` | Produktiv (9/9 Unit-Tests grün) | **GRÜN** (null I/O, deterministisch) |
-| `ash-protocol` | `crates/ash-protocol` | `shared` | Produktiv (`client`, `mesh`, `codec`; 1/1 Roundtrip-Test grün) | **GRÜN** (frei von `tokio`/`quinn`) |
-| `ash-db` | `crates/ash-db` | `server` | Produktiv (`sqlx`, `redis` & Server-mTLS/QUIC `transport`) | **GRÜN** |
-| `ash-auth-gateway` | `crates/ash-auth-gateway` | `server` | Produktiv (Auth, Matrix, PKI-Init, Crash-Fallback) | **GRÜN** |
-| `ash-game-node` | `crates/ash-game-node` | `server` | Produktiv (25-Hz-`hecs`, mTLS-Gossip, Handover; 2/2 Cluster-E2E-Tests grün) | **GRÜN** |
-| `ash-irc-bridge` | `crates/ash-irc-bridge` | `server` | Produktiv (Slash-Parser & `#new_lawrence`-Funk-Alarme) | **GRÜN** |
-| `ash-test-cli` | `crates/ash-test-cli` | `client` | Reiner Blackbox-QUIC/IRC-Smoke-Client (1/1 Unit-Test grün) | **GRÜN** (null Server-/DB-/ECS-Kanten) |
+| `ash-core` | `crates/ash-core` | `shared` | Domain, Kampf & deterministischer `scenario`-Simulator (9/9 Unit-Tests grün) | **GRÜN** (null I/O, deterministischer Seed) |
+| `ash-protocol` | `crates/ash-protocol` | `shared` | Reine Wire-Frames (`client`, `mesh`, `codec`; 1/1 Roundtrip-Test grün) | **GRÜN** |
+| `ash-db` | `crates/ash-db` | `server` | `sqlx` + `redis` + Server-mTLS/QUIC `transport` | **GRÜN** |
+| `ash-auth-gateway` | `crates/ash-auth-gateway` | `server` | Auth, Matrix, PKI-Init, Crash-Recovery-Fallback | **GRÜN** |
+| `ash-game-node` | `crates/ash-game-node` | `server` | 25-Hz-`hecs`, mTLS-Gossip, Handover (2/2 Cluster-E2E-Tests grün) | **GRÜN** |
+| `ash-irc-bridge` | `crates/ash-irc-bridge` | `server` | Slash-Parser & `#new_lawrence`-Funk-Alarme | **GRÜN** |
+| `ash-test-cli` | `crates/ash-test-cli` | `client` | Blackbox-QUIC/IRC-Client + `run-scenario --trace --report` (3/3 Unit-Tests grün) | **GRÜN** |
 
 ---
 
-## 2. Reale Infrastruktur & Datenbank-Tabellen
+## 2. Verankerte KI-Harness-Komponenten (Sprint 1.7)
 
-- **Docker-Compose-Services (`docker-compose.yml`):**
-  - Standard: `pki-init`, `postgres` (PostgreSQL 16), `redis` (Redis 7), `ircd` (`ngIRCd` mit `#roadhouse`, `#new_lawrence`, `#zone_salzminen`, `#men_of_letters`), `auth-gateway`, `game-node-roadhouse` (`hub`), `game-node-frontier` (`mirror`), `irc-bridge`.
-  - Profile: `game-node-raid` (`profiles: ["raids"]`), `ash-test-cli` (`profiles: ["test"]`).
-  - Netzwerke: `ash-mesh-net`, `data-net` (`internal: true`), `irc-net`.
-- **PostgreSQL-Schema (`crates/ash-db/migrations/0001_initial_schema.sql`):**
-  - `accounts`, `characters` (inkl. DB-`CHECK` gegen Engel/Dämonen), `character_equipment` (Slots 1–16), `character_essences`, `character_quests`, `zone_omen_states`.
-- **Datengetriebene Content-Dateien:**
-  - `data/zones.toml` (6 Zonen inkl. Roadhouse-NPCs Ellen, Jo, Ashs Terminal)
-  - `data/quests.toml` (3 Einstiegs-Quests)
-
----
-
-## 3. Behobene Schulden aus Sprint 1.6 (Abgeschlossen)
-
-- [x] **3-Zonen-Entkopplung `ash-protocol` (`shared`):** `tokio` und `quinn` vollständig entfernt; Nachrichten sauber in `client`-, `mesh`- und synchrones `codec`-Modul getrennt; Server-mTLS/QUIC-Transport nach `ash-db::transport` (`zone = "server"`) verschoben.
-- [x] **3-Zonen-Isolation `ash-test-cli` (`client`):** Sämtliche `server`-, `sqlx`-, `redis`- und `hecs`-Abhängigkeiten entfernt; den vollständigen 8-Phasen-In-Process-Cluster-E2E-Test + Crash-Recovery-Test nach `crates/ash-game-node/tests/cluster_e2e.rs` (`zone = "server"`) überführt.
-- [x] **Formatierung & Linter:** `cargo fmt --all -- --check` und `cargo clippy --workspace --all-targets -- -D warnings` (inkl. Fix in `ash-core/src/world.rs`) laufen mit **0 Warnungen / 0 Diffs** durch.
-- **Offene Schulden:** *Keine.*
+- **Zentraler Runner:** [`scripts/harness.sh`](../scripts/harness.sh) (`gate | sim | e2e | all`) mit `trap`-Teardown und kompaktem Fehler-Digest in `.harness-artifacts/last-failure.md`.
+- **Ephemerer Live-Stack:** [`docker-compose.harness.yml`](../docker-compose.harness.yml) (`name: ash-harness`, `tmpfs` für PostgreSQL 16 & Redis 7, schnelle Healthchecks).
+- **Deklarative Szenarien (`harness/scenarios/`):**
+  - [`00-smoke-mesh.toml`](../harness/scenarios/00-smoke-mesh.toml) (`mode = "e2e"`, `min_sprint = 1` — aktiv)
+  - [`01-sim-invariants.toml`](../harness/scenarios/01-sim-invariants.toml) (`mode = "sim"`, `min_sprint = 1` — aktiv, 18 Steps)
+  - [`02-combat-4role.template.toml`](../harness/scenarios/02-combat-4role.template.toml) (`min_sprint = 2`)
+  - [`03-roadhouse-quests.template.toml`](../harness/scenarios/03-roadhouse-quests.template.toml) (`min_sprint = 3`)
+  - [`04-raid-failover.template.toml`](../harness/scenarios/04-raid-failover.template.toml) (`min_sprint = 4`)
+- **Atomare Sprint-Orchestrierung:** [`.agents/tasks/README.md`](tasks/README.md) & [`.agents/tasks/sprint-2-breakdown.md`](tasks/sprint-2-breakdown.md) (Pakete `2A` bis `2G`) sowie [`ADR-005`](decisions/ADR-005-ai-verification-harness.md).
 
 ---
 
-## 4. Pflicht-Update-Checkliste für kommende Sprints
+## 3. Pflicht-Update-Checkliste für kommende Sprints
 
-- [x] **Vor Sprint 2 (Sprint 1.6 Gate-Cleanup):** `./scripts/check-invariants.sh` vollständig auf Grün (`Exit 0`) gebracht.
-- [ ] **Ende Sprint 2 (`SERVER + SHARED`):** Neue Server-/Mesh-/Kampf-Erweiterungen + additive DB-Migrationen dokumentieren, `./scripts/check-invariants.sh` grün.
-- [ ] **Ende Sprint 3 (`SERVER + SHARED`):** Migration/Ausbau der Weltdaten nach `/data/world/*.toml`, Quest-/Omen-/Gathering-Stand eintragen, `./scripts/check-invariants.sh` grün.
-- [ ] **Ende Sprint 4 (`SERVER + SHARED`):** Vollständige Raid-Encounter (*Malphas*, *Sariel*) & ggf. `ash-admin-cli` (`zone = "server"`) dokumentieren, `./scripts/check-invariants.sh` grün.
-- [ ] **Ende Sprint 5 (`CLIENT`):** Freigabe und Dokumentation von `ash-client-tui` (`zone = "client"`, `ratatui`/`crossterm`) strikt über `ash-protocol::client` + `ircd`, `./scripts/check-invariants.sh` grün.
+- [x] **Sprint 1.5 – 1.7 (Governance, 3-Zonen-Gate & KI-Harness):** Vollständig aktiv & grün.
+- [ ] **Ende Sprint 2 (`SERVER + SHARED`):** Pakete `2A`–`2G` in `sprint-2-breakdown.md` abarbeiten, `02-combat-4role.toml` aktivieren, `CURRENT_SPRINT=2 ./scripts/harness.sh gate && CURRENT_SPRINT=2 ./scripts/harness.sh sim` grün.
+- [ ] **Ende Sprint 3 (`SERVER + SHARED`):** Weltdaten `/data/world/*.toml`, Quest-/Omen-/Gathering-Ausbau & `03-roadhouse-quests.toml` grün.
+- [ ] **Ende Sprint 4 (`SERVER + SHARED`):** Raid-Encounter (*Malphas*, *Sariel*), Failover-Szenario `04-raid-failover.toml` & ggf. `ash-admin-cli` (`zone = "server"`) grün.
+- [ ] **Ende Sprint 5 (`CLIENT`):** `ash-client-tui` (`zone = "client"`, `ratatui`/`crossterm`) + `tui-snap`-Harness (`TestBackend`) grün.

@@ -1,0 +1,110 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Aktives Sprint-1 End-to-End-Mesh-Szenario (QUIC + mTLS-Gossip + Handover + IRC)
+
+id = "00-smoke-mesh"
+description = "Vollständiger Sprint-1-E2E-Smoke-Flow: Auth, Engel/Dämonen-Sperre, 16 graue Slots in zone_roadhouse, NPCs, IRC /salzen & /emf, Live PLAYER_HANDOVER auf game-node-frontier und Omen-Stufe-2-Funk-Alarm."
+mode = "e2e"
+min_sprint = 1
+seed = 19670124
+
+[[actors]]
+id = "dean"
+name = "Winchester"
+race = "Winchester-Abkömmling"
+class = "Winchester-Sniper"
+start_zone = "zone_roadhouse"
+
+[[steps]]
+action = "expect_rejected_creation"
+name = "ForbiddenAngel"
+race = "Engel"
+class = "Winchester-Sniper"
+expected_reason = "FORBIDDEN_OVERPOWER_RACE"
+
+[[steps]]
+action = "expect_rejected_creation"
+name = "ForbiddenDemon"
+race = "Dämon"
+class = "Winchester-Sniper"
+expected_reason = "FORBIDDEN_OVERPOWER_RACE"
+
+[[steps]]
+action = "register_and_create"
+actor = "dean"
+
+[[steps]]
+action = "expect_16_gray_slots"
+actor = "dean"
+
+[[steps]]
+action = "assert_state"
+actor = "dean"
+expected_zone = "zone_roadhouse"
+min_slots = 16
+
+[[steps]]
+action = "enter_roadhouse"
+actor = "dean"
+
+[[steps]]
+action = "interact_npc"
+actor = "dean"
+npc_id = "npc_jo_harvelle"
+
+[[steps]]
+action = "interact_npc"
+actor = "dean"
+npc_id = "npc_ellen_harvelle"
+
+[[steps]]
+action = "interact_npc"
+actor = "dean"
+npc_id = "obj_ash_terminal"
+
+[[steps]]
+action = "query_ash_terminal"
+actor = "dean"
+min_active_nodes = 2
+
+[[steps]]
+action = "irc_command"
+actor = "dean"
+channel = "#roadhouse"
+command_line = "/salzen an der Roadhouse-Schwelle"
+expect_reply_contains = "ECS-SCHUTZLINIE"
+
+[[steps]]
+action = "move_and_handover"
+actor = "dean"
+pos_x = 105.0
+pos_y = 0.0
+expected_zone = "zone_new_lawrence_west"
+
+[[steps]]
+action = "assert_state"
+actor = "dean"
+expected_zone = "zone_new_lawrence_west"
+expected_salt_ward = true
+
+[[steps]]
+action = "irc_command"
+actor = "dean"
+channel = "#new_lawrence"
+command_line = "/emf am Kolonie-Motel"
+expect_reply_contains = "EMF-SCAN zone_new_lawrence_west"
+
+[[steps]]
+action = "upgrade_main_hand_green"
+actor = "dean"
+
+[[steps]]
+action = "perform_banish_sheep"
+actor = "dean"
+
+[[steps]]
+action = "trigger_omen"
+actor = "dean"
+zone_id = "zone_new_lawrence_west"
+omen_level = 2
+reason = "Schwefelriss am Kolonie-Motel aufgebrochen"
+expect_irc_alert_contains = "OMEN-STUFE 2"

@@ -1,0 +1,224 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Ash-Net: New Lawrence — Ephemerer, isolierter E2E-Harness-Stack (`ash-harness`)
+# Nutzt tmpfs für Postgres & Redis (null persistenter Zustand zwischen Läufen) und kollisionsfreie Ports.
+
+name: ash-harness
+
+services:
+  pki-init:
+    build:
+      context: .
+      target: pki-init
+    volumes:
+      - harness-pki-certs:/certs
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ash
+      POSTGRES_PASSWORD: ash_secret
+      POSTGRES_DB: ashnet
+    tmpfs:
+      - /var/lib/postgresql/data:rw,size=256m
+    networks:
+      - data-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ash -d ashnet"]
+      interval: 1s
+      timeout: 2s
+      retries: 25
+      start_period: 1s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    tmpfs:
+      - /data:rw,size=64m
+    networks:
+      - data-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 1s
+      timeout: 2s
+      retries: 25
+      start_period: 1s
+
+  ircd:
+    build:
+      context: ./infra/ircd
+    networks:
+      - irc-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "6667"]
+      interval: 1s
+      timeout: 2s
+      retries: 25
+      start_period: 1s
+
+  auth-gateway:
+    build:
+      context: .
+      target: auth-gateway
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AUTH_BIND_ADDR: "0.0.0.0:4430"
+      TLS_CERT_PATH: "/certs/auth-gateway.crt"
+      TLS_KEY_PATH: "/certs/auth-gateway.key"
+      DATABASE_URL: "postgres://ash:ash_secret@postgres:5432/ashnet"
+      REDIS_URL: "redis://redis:6379"
+      ROADHOUSE_CLIENT_ADDR: "game-node-roadhouse:4433"
+    volumes:
+      - harness-pki-certs:/certs:ro
+    networks:
+      - ash-mesh-net
+      - data-net
+    healthcheck:
+      test: ["CMD-SHELL", "test -r /proc/1/cmdline"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+      start_period: 1s
+
+  game-node-roadhouse:
+    build:
+      context: .
+      target: game-node
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ID: "game-node-roadhouse"
+      NODE_ROLE: "hub"
+      ZONES: "zone_roadhouse"
+      CLIENT_BIND_ADDR: "0.0.0.0:4433"
+      CLIENT_PUBLIC_ADDR: "game-node-roadhouse:4433"
+      MESH_BIND_ADDR: "0.0.0.0:5000"
+      MESH_PUBLIC_ADDR: "game-node-roadhouse:5000"
+      TICK_RATE_HZ: "25"
+      TLS_CA_PATH: "/certs/ca.crt"
+      TLS_CERT_PATH: "/certs/game-node-roadhouse.crt"
+      TLS_KEY_PATH: "/certs/game-node-roadhouse.key"
+      DATABASE_URL: "postgres://ash:ash_secret@postgres:5432/ashnet"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - harness-pki-certs:/certs:ro
+    networks:
+      - ash-mesh-net
+      - data-net
+    healthcheck:
+      test: ["CMD-SHELL", "test -r /proc/1/cmdline"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+      start_period: 1s
+
+  game-node-frontier:
+    build:
+      context: .
+      target: game-node
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      game-node-roadhouse:
+        condition: service_healthy
+    environment:
+      NODE_ID: "game-node-frontier"
+      NODE_ROLE: "mirror"
+      HUB_ADDR: "game-node-roadhouse:5000"
+      ZONES: "zone_new_lawrence_west,zone_salzminen"
+      CLIENT_BIND_ADDR: "0.0.0.0:4434"
+      CLIENT_PUBLIC_ADDR: "game-node-frontier:4434"
+      MESH_BIND_ADDR: "0.0.0.0:5001"
+      MESH_PUBLIC_ADDR: "game-node-frontier:5001"
+      TICK_RATE_HZ: "25"
+      TLS_CA_PATH: "/certs/ca.crt"
+      TLS_CERT_PATH: "/certs/game-node-frontier.crt"
+      TLS_KEY_PATH: "/certs/game-node-frontier.key"
+      DATABASE_URL: "postgres://ash:ash_secret@postgres:5432/ashnet"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - harness-pki-certs:/certs:ro
+    networks:
+      - ash-mesh-net
+      - data-net
+    healthcheck:
+      test: ["CMD-SHELL", "test -r /proc/1/cmdline"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+      start_period: 1s
+
+  irc-bridge:
+    build:
+      context: .
+      target: irc-bridge
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      ircd:
+        condition: service_healthy
+      game-node-roadhouse:
+        condition: service_healthy
+    environment:
+      IRCD_ADDR: "ircd:6667"
+      IRC_BOT_NICK: "AshBridge"
+      IRC_OPER_USER: "ashoper"
+      IRC_OPER_PASSWORD: "enochian_oper_secret"
+      HUB_MESH_ADDR: "game-node-roadhouse:5000"
+      TLS_CA_PATH: "/certs/ca.crt"
+      TLS_CERT_PATH: "/certs/irc-bridge.crt"
+      TLS_KEY_PATH: "/certs/irc-bridge.key"
+    volumes:
+      - harness-pki-certs:/certs:ro
+    networks:
+      - ash-mesh-net
+      - irc-net
+    healthcheck:
+      test: ["CMD-SHELL", "test -r /proc/1/cmdline"]
+      interval: 1s
+      timeout: 2s
+      retries: 20
+      start_period: 1s
+
+  ash-test-cli:
+    profiles: ["runner"]
+    build:
+      context: .
+      target: test-cli
+    environment:
+      AUTH_ADDR: "auth-gateway:4430"
+      IRC_ADDR: "ircd:6667"
+      TLS_CA_PATH: "/certs/ca.crt"
+    volumes:
+      - harness-pki-certs:/certs:ro
+      - ./harness:/harness:ro
+      - ./.harness-artifacts:/artifacts
+    networks:
+      - ash-mesh-net
+      - irc-net
+
+networks:
+  ash-mesh-net:
+    driver: bridge
+  data-net:
+    driver: bridge
+    internal: true
+  irc-net:
+    driver: bridge
+
+volumes:
+  harness-pki-certs:

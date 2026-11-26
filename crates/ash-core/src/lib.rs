@@ -4,6 +4,7 @@ pub mod character;
 pub mod combat;
 pub mod equipment;
 pub mod error;
+pub mod scenario;
 pub mod world;
 
 #[cfg(test)]

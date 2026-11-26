@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Vorbereitetes Sprint-4-Szenario-Template (wird bei CURRENT_SPRINT < 4 automatisch übersprungen)
+
+id = "04-raid-failover-template"
+description = "Sprint-4 Raid-Encounter (Malphas & Sariel) auf game-node-raid inkl. Knoten-Ausfall & sicherem Reconnect-Fallback nach zone_roadhouse."
+mode = "e2e"
+min_sprint = 4
+seed = 20260401
+
+[[actors]]
+id = "raid_leader"
+name = "Ellen_Vanguard"
+race = "Winchester-Abkömmling"
+class = "Bann-Wächter"
+start_zone = "zone_roadhouse"
+
+[[steps]]
+action = "register_and_create"
+actor = "raid_leader"

@@ -40,10 +40,17 @@ Jede Entwicklungsaufgabe folgt diesen reproduzierbaren Checklisten.
 
 ---
 
-## 5. Workflow: Sprint- & Task-Abschluss (Pflicht-Gate)
-- [ ] Führe `./scripts/check-invariants.sh` vollständig aus:
-  - Check 1: SPDX-Header in allen `.rs`-Dateien.
-  - Check 2: 3-Zonen-Abhängigkeitsgraph (`cargo metadata`).
-  - Check 3: Vollständigkeit aller `.agents/`- und Adapter-Dateien.
-  - Check 4: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` (+ `cargo deny check licenses`, falls installiert).
-- [ ] Aktualisiere `.agents/STATUS.md` (umgesetzte Punkte, neue Migrationen/Tests, aktueller Gate-Status).
+## 5. Workflow: KI-Harness & Atomare Paket-Verifikation (`scripts/harness.sh`)
+- Nutze für jedes Arbeitspaket aus `.agents/tasks/` konsequent den zentralen Harness:
+  - `./scripts/harness.sh gate` — Führt `./scripts/check-invariants.sh` aus (SPDX, 3-Zonen-Graph, Governance, `fmt`, `clippy -D warnings`, `cargo test`).
+  - `./scripts/harness.sh sim` — Führt alle für `CURRENT_SPRINT` freigeschalteten deterministischen `sim`-Szenarien (`harness/scenarios/*.toml`) inkl. `NDJSON`-Trace in `.harness-artifacts/` aus.
+  - `./scripts/harness.sh e2e` — Startet den ephemeren `tmpfs`-Stack (`docker-compose.harness.yml`), prüft Container-Health, führt `00-smoke-mesh.toml` (bzw. Ziel-Szenario) aus, erzeugt bei Fehlern einen kompakten Digest in `.harness-artifacts/last-failure.md` und räumt per `trap` garantiert mit `down -v --remove-orphans` auf.
+  - `./scripts/harness.sh all` — Führt `gate` → `sim` → `e2e` hintereinander aus.
+- **Reservierter Sprint-5-Hook (TUI-Snapshot-Harness — NICHT vor Sprint 5 installieren!):**
+  - Ab Sprint 5 (`ACTIVE_SCOPE = CLIENT`, Freigabe von `ash-client-tui`) wird `scripts/harness.sh` um ein Subcommand `tui-snap` erweitert, das Terminal-Views headless über `ratatui::backend::TestBackend` (80×24 & 120×40 Text-Snapshots) deterministisch gegen Referenz-Frames prüft. Vor Sprint 5 bleiben `ratatui` und `crossterm` im gesamten Workspace verboten!
+
+---
+
+## 6. Workflow: Sprint- & Task-Abschluss (Pflicht-Gate)
+- [ ] Führe `./scripts/harness.sh gate && ./scripts/harness.sh sim` (sowie `./scripts/harness.sh e2e`, sofern ein Docker-Daemon verfügbar ist) vollständig mit Exit-Code `0` aus.
+- [ ] Hake erledigte Arbeitspakete in `.agents/tasks/` ab und aktualisiere `.agents/STATUS.md` (umgesetzte Punkte, aktive Szenarien, aktueller Gate-Status).

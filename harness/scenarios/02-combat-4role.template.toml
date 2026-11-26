@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Vorbereitetes Sprint-2-Szenario-Template (wird bei CURRENT_SPRINT < 2 automatisch übersprungen)
+
+id = "02-combat-4role-template"
+description = "Sprint-2 4-Rollen-Kampf-Verifikation über alle 15 Klassen (Tank-Aggro-Balance, Heiler-Notfallskills, Support-Sigillen/Trickster, Nah- & Fernkampf-DDs)."
+mode = "sim"
+min_sprint = 2
+seed = 20260201
+
+[[actors]]
+id = "tank"
+name = "Tank_Eisen"
+race = "Winchester-Abkömmling"
+class = "Eisen-Krieger"
+start_zone = "zone_roadhouse"
+
+[[actors]]
+id = "healer"
+name = "Heiler_Siphon"
+race = "Vampir"
+class = "Blut-Siphon"
+start_zone = "zone_roadhouse"
+
+[[actors]]
+id = "support"
+name = "Support_Trickster"
+race = "Gestaltwandler"
+class = "Trickster-Köder"
+start_zone = "zone_roadhouse"
+
+[[actors]]
+id = "ranged_dd"
+name = "Pyro_DD"
+race = "Hexe"
+class = "Salz-&-Benzin-Pyromant"
+start_zone = "zone_roadhouse"
+
+[[steps]]
+action = "register_and_create"
+actor = "tank"
+
+[[steps]]
+action = "sim_combat_invariant"
+invariant = "tank_aggro_balance"

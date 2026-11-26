@@ -27,15 +27,16 @@ Jeder Agent (unabhängig von Modell oder IDE) MUSS vor der ersten Dateiänderung
 5. Fachdokumente nach Aufgabenbedarf:
    - [`.agents/01-architecture.md`](.agents/01-architecture.md) (Workspace, Determinismus-Regeln, Docker-Topologie)
    - [`.agents/02-lore-canon.md`](.agents/02-lore-canon.md) (Kanon-Tabellen & Negativ-Liste gegen Halluzinationen)
-   - [`.agents/04-workflows.md`](.agents/04-workflows.md) (Checklisten für Features, Migrationen, Protokoll & Abschluss)
-   - [`.agents/decisions/`](.agents/decisions/) (Verbindliche Architecture Decision Records `ADR-001` bis `ADR-004`)
+   - [`.agents/04-workflows.md`](.agents/04-workflows.md) (Checklisten, Harness-Kommandos & Sprint-5-TUI-Hook)
+   - [`.agents/tasks/`](.agents/tasks/) (Atomare Sprint-Arbeitspakete, z. B. `sprint-2-breakdown.md`)
+   - [`.agents/decisions/`](.agents/decisions/) (Verbindliche Architecture Decision Records `ADR-001` bis `ADR-005`)
 
 ## 4. Operative Grundregeln
-- **Scope-Disziplin:** Arbeite ausschließlich in den Zonen, die für den jeweiligen Sprint freigegeben sind (Sprint 2–4: `SERVER + SHARED`; `CLIENT`-TUI erst ab Sprint 5).
+- **Scope-Disziplin & Atomare Pakete:** Arbeite ausschließlich in den für den Sprint freigegebenen Zonen (Sprint 2–4: `SERVER + SHARED`; `CLIENT`-TUI erst ab Sprint 5) und zerlege große Sprints gemäß `.agents/tasks/` in einzeln per `./scripts/harness.sh gate && ./scripts/harness.sh sim` geprüfte Pakete.
 - **Kein Regel-Kopieren:** Adapter-Dateien (`CLAUDE.md`, `GEMINI.md`, `.agent/rules/`, `.cursor/rules/`, `.github/copilot-instructions.md`, `.windsurfrules`) bleiben reine Verweise auf `AGENTS.md` und `.agents/`.
 - **Stop-on-Conflict:** Widerspricht eine Anforderung `00-invariants.md` oder `05-client-server-boundary.md`, stoppe sofort und frage aktiv beim User rück, statt still Grenzen aufzuweichen.
 
-## 5. Pflicht-Abschluss-Gate (Definition of Done)
-Kein Sprint, Bugfix oder Task gilt als abgeschlossen, bevor **beide** Schritte erfüllt sind:
-1. `./scripts/check-invariants.sh` läuft vollständig und **grün (Exit-Code 0)** durch (SPDX, 3-Zonen-`cargo metadata`-Graph, Governance-Dateien, `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace`).
+## 5. Pflicht-Abschluss-Gate & KI-Harness (Definition of Done)
+Kein Sprint, Bugfix oder Arbeitspaket gilt als abgeschlossen, bevor diese Schritte erfüllt sind:
+1. `./scripts/harness.sh gate` (`./scripts/check-invariants.sh`) und `./scripts/harness.sh sim` laufen vollständig **grün (Exit-Code 0)** durch (bei verfügbarem Docker zusätzlich `./scripts/harness.sh e2e` bzw. `./scripts/harness.sh all`).
 2. [`.agents/STATUS.md`](.agents/STATUS.md) wurde wahrheitsgemäß auf den neuen Ist-Stand aktualisiert.

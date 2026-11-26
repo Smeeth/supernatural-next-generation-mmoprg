@@ -24,3 +24,4 @@ redisdata/
 *.dll
 *.so
 *.dylib
+.harness-artifacts/

@@ -223,6 +223,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",

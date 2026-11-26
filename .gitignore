@@ -4,3 +4,4 @@
 .env
 certs/
 pgdata/
+.harness-artifacts/

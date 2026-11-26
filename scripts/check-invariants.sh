@@ -199,6 +199,9 @@ REQUIRED_FILES=(
     ".agents/decisions/ADR-002-quic-vs-irc-protocol-split.md"
     ".agents/decisions/ADR-003-pure-deterministic-ash-core.md"
     ".agents/decisions/ADR-004-three-pillar-monorepo-isolation.md"
+    ".agents/decisions/ADR-005-ai-verification-harness.md"
+    ".agents/tasks/README.md"
+    ".agents/tasks/sprint-2-breakdown.md"
     "CLAUDE.md"
     "GEMINI.md"
     ".agent/rules/ash-net.md"
@@ -209,6 +212,10 @@ REQUIRED_FILES=(
     ".cursorignore"
     ".geminiignore"
     "deny.toml"
+    "docker-compose.harness.yml"
+    "scripts/harness.sh"
+    "harness/scenarios/00-smoke-mesh.toml"
+    "harness/scenarios/01-sim-invariants.toml"
 )
 
 GOV_FAILED=0
@@ -218,6 +225,11 @@ for req in "${REQUIRED_FILES[@]}"; do
         GOV_FAILED=1
     fi
 done
+
+if [[ ! -x "scripts/harness.sh" ]]; then
+    echo "  GOVERNANCE VIOLATION: 'scripts/harness.sh' ist nicht ausführbar (chmod +x fehlt)"
+    GOV_FAILED=1
+fi
 
 if [[ "$GOV_FAILED" -eq 0 ]]; then
     echo "  -> OK (${#REQUIRED_FILES[@]} Governance-, Adapter- & Hygiene-Dateien vorhanden)."

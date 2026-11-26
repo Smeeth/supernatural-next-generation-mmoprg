@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Vorbereitetes Sprint-3-Szenario-Template (wird bei CURRENT_SPRINT < 3 automatisch übersprungen)
+
+id = "03-roadhouse-quests-template"
+description = "Sprint-3 Datengetriebene Quest-Ketten, World-Gathering in zone_salzminen und Omen-Eskalation."
+mode = "e2e"
+min_sprint = 3
+seed = 20260301
+
+[[actors]]
+id = "quest_hunter"
+name = "Jo_Apprentice"
+race = "Mann der Schriften"
+class = "Runen-Kleriker"
+start_zone = "zone_roadhouse"
+
+[[steps]]
+action = "register_and_create"
+actor = "quest_hunter"
