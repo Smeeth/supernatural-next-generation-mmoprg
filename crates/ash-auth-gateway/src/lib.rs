@@ -6,14 +6,11 @@ use anyhow::Result;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use ash_core::character::{
-    CharacterClass, CharacterSheet, PlayableRace, STARTING_ZONE_ROADHOUSE,
-};
+use ash_core::character::{CharacterClass, CharacterSheet, PlayableRace, STARTING_ZONE_ROADHOUSE};
 use ash_core::error::DomainError;
+use ash_db::transport::{build_quic_server, read_frame, send_response_and_close};
 use ash_db::AshStore;
-use ash_protocol::framing::{read_frame, send_response_and_close};
-use ash_protocol::messages::{AuthRequest, AuthResponse, ZoneRoutingTicket};
-use ash_protocol::tls::build_quic_server;
+use ash_protocol::client::{AuthRequest, AuthResponse, ZoneRoutingTicket};
 use quinn::Endpoint;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -256,10 +253,7 @@ async fn handle_auth_request(
                         let _ = store.fallback_character_to_roadhouse(&mut ch).await;
                     }
                     let roadhouse_addr = store
-                        .get_active_zone_route(
-                            STARTING_ZONE_ROADHOUSE,
-                            cfg.route_stale_timeout_ms,
-                        )
+                        .get_active_zone_route(STARTING_ZONE_ROADHOUSE, cfg.route_stale_timeout_ms)
                         .await
                         .ok()
                         .flatten()

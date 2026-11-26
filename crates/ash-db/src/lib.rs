@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+pub mod transport;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -47,10 +49,7 @@ pub struct InMemoryData {
 
 #[derive(Clone)]
 pub enum AshStore {
-    PostgresRedis {
-        pg: PgPool,
-        redis: redis::Client,
-    },
+    PostgresRedis { pg: PgPool, redis: redis::Client },
     InMemory(Arc<RwLock<InMemoryData>>),
 }
 
@@ -316,7 +315,10 @@ impl AshStore {
         }
     }
 
-    pub async fn list_characters_for_account(&self, account_id: Uuid) -> Result<Vec<CharacterSheet>> {
+    pub async fn list_characters_for_account(
+        &self,
+        account_id: Uuid,
+    ) -> Result<Vec<CharacterSheet>> {
         match self {
             Self::PostgresRedis { pg, .. } => {
                 let rows = sqlx::query(
@@ -395,11 +397,12 @@ impl AshStore {
             );
         }
 
-        let ess_rows =
-            sqlx::query("SELECT essence_type, amount FROM character_essences WHERE character_id = $1")
-                .bind(id)
-                .fetch_all(pg)
-                .await?;
+        let ess_rows = sqlx::query(
+            "SELECT essence_type, amount FROM character_essences WHERE character_id = $1",
+        )
+        .bind(id)
+        .fetch_all(pg)
+        .await?;
         let mut essences = EssenceWallet::default();
         for er in ess_rows {
             let et_str: String = er.get("essence_type");
@@ -524,7 +527,10 @@ impl AshStore {
             Self::PostgresRedis { redis, .. } => {
                 let mut conn = redis.get_multiplexed_async_connection().await?;
                 let key = format!("ash:ticket:{token}");
-                let val: Option<String> = redis::cmd("GETDEL").arg(&key).query_async(&mut conn).await?;
+                let val: Option<String> = redis::cmd("GETDEL")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await?;
                 Ok(val.and_then(|s| serde_json::from_str(&s).ok()))
             }
             Self::InMemory(mem) => Ok(mem.write().await.tickets.remove(token)),
@@ -558,7 +564,10 @@ impl AshStore {
             Self::PostgresRedis { redis, .. } => {
                 let mut conn = redis.get_multiplexed_async_connection().await?;
                 let key = format!("ash:handover:{token}");
-                let val: Option<String> = redis::cmd("GETDEL").arg(&key).query_async(&mut conn).await?;
+                let val: Option<String> = redis::cmd("GETDEL")
+                    .arg(&key)
+                    .query_async(&mut conn)
+                    .await?;
                 Ok(val.and_then(|s| serde_json::from_str(&s).ok()))
             }
             Self::InMemory(mem) => Ok(mem.write().await.handovers.remove(token)),

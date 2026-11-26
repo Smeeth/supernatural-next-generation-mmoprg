@@ -6,17 +6,19 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[package.metadata.ash]
+zone = "client"
+
 [dependencies]
 ash-core.workspace = true
 ash-protocol.workspace = true
-ash-db.workspace = true
-ash-auth-gateway = { path = "../ash-auth-gateway" }
-ash-game-node = { path = "../ash-game-node" }
-ash-irc-bridge = { path = "../ash-irc-bridge" }
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true
 quinn.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+serde.workspace = true
 uuid.workspace = true

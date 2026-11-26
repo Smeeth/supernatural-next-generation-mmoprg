@@ -60,11 +60,11 @@ Der Runner prüft vollautomatisch:
 ## Lokale Kompilierung & Unit-/E2E-Tests (ohne Docker)
 
 ```bash
-# Alle Domain-, Matrix-, Kampf- und End-to-End-Mesh-Tests ausführen
+# Alle Domain-, Matrix-, Kampf- und Multi-Node-Cluster-E2E-Tests ausführen
 cargo test --workspace
 
-# Selbstständigen In-Process-Cluster-Smoke-Test direkt starten
-cargo run -p ash-test-cli -- --self-contained
+# Vollständiges Lizenz-, 3-Zonen-Graph- & Rust-Quality-Gate prüfen
+./scripts/check-invariants.sh
 ```
 
 ---

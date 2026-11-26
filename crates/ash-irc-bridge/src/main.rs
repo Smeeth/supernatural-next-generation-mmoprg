@@ -9,7 +9,10 @@ use clap::Parser;
 use tracing::info;
 
 #[derive(Debug, Parser)]
-#[command(name = "ash-irc-bridge", about = "Ash-Net IRC <-> QUIC-Mesh Service Bridge")]
+#[command(
+    name = "ash-irc-bridge",
+    about = "Ash-Net IRC <-> QUIC-Mesh Service Bridge"
+)]
 struct Args {
     #[arg(long, env = "IRCD_ADDR", default_value = "ircd:6667")]
     irc_addr: String,
@@ -20,10 +23,18 @@ struct Args {
     #[arg(long, env = "IRC_OPER_USER", default_value = "ashoper")]
     oper_user: Option<String>,
 
-    #[arg(long, env = "IRC_OPER_PASSWORD", default_value = "enochian_oper_secret")]
+    #[arg(
+        long,
+        env = "IRC_OPER_PASSWORD",
+        default_value = "enochian_oper_secret"
+    )]
     oper_password: Option<String>,
 
-    #[arg(long, env = "HUB_MESH_ADDR", default_value = "game-node-roadhouse:5000")]
+    #[arg(
+        long,
+        env = "HUB_MESH_ADDR",
+        default_value = "game-node-roadhouse:5000"
+    )]
     hub_mesh_addr: String,
 
     #[arg(long, env = "TLS_CA_PATH", default_value = "/certs/ca.crt")]
@@ -40,14 +51,13 @@ struct Args {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
     let args = Args::parse();
-    let ca_pem = fs::read(&args.ca_path)
-        .with_context(|| format!("read CA {}", args.ca_path.display()))?;
+    let ca_pem =
+        fs::read(&args.ca_path).with_context(|| format!("read CA {}", args.ca_path.display()))?;
     let cert_pem = fs::read(&args.cert_path)
         .with_context(|| format!("read cert {}", args.cert_path.display()))?;
     let key_pem = fs::read(&args.key_path)

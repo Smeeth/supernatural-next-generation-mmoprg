@@ -22,7 +22,9 @@ pub enum DomainError {
     #[error("Absolutes Eisen-Tabu: Fee/Fae erleidet Verbrennungen durch reines Eisen ({item})")]
     FaeIronTaboo { item: String },
 
-    #[error("Hexen-Restriktion: Schwere Nahkampf-Stahlwaffen ({item}) sind für Hexen/Hexer verboten")]
+    #[error(
+        "Hexen-Restriktion: Schwere Nahkampf-Stahlwaffen ({item}) sind für Hexen/Hexer verboten"
+    )]
     WitchHeavySteelTaboo { item: String },
 
     #[error("Ausrüstungsteil gehört in Slot {expected:?}, nicht {actual:?}")]
@@ -50,7 +52,9 @@ pub enum DomainError {
     #[error("Sigillen-Elementarist besitzt keinerlei direkte Heilzauber und wirkt Buffs/Schilde nur als Boden-Sigillen")]
     SigilElementalistCannotHeal,
 
-    #[error("Sigillen-Elementarist kann Buffs und Schilde ausschließlich als Boden-Sigille platzieren")]
+    #[error(
+        "Sigillen-Elementarist kann Buffs und Schilde ausschließlich als Boden-Sigille platzieren"
+    )]
     SigilMustBeGroundPlaced,
 
     #[error("Flächenbrand erfordert mindestens 3 Ziele mit aktivem Flamme-Effekt (aktuell: {0})")]

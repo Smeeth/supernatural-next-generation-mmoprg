@@ -85,10 +85,12 @@ impl PlayableRace {
         let norm = raw.trim().to_lowercase().replace(['-', ' '], "_");
         match norm.as_str() {
             "angel" | "engel" | "erzengel" | "archangel" | "seraph" | "demon" | "daemon"
-            | "dämon" | "knight_of_hell" | "ritter_der_hoelle" | "ritter_der_hölle" => {
-                Err(DomainError::ForbiddenSupernaturalOrigin(raw.trim().to_string()))
-            }
-            "winchester" | "winchester_descendant" | "winchester_abkoemmling"
+            | "dämon" | "knight_of_hell" | "ritter_der_hoelle" | "ritter_der_hölle" => Err(
+                DomainError::ForbiddenSupernaturalOrigin(raw.trim().to_string()),
+            ),
+            "winchester"
+            | "winchester_descendant"
+            | "winchester_abkoemmling"
             | "winchester_abkömmling" => Ok(Self::WinchesterDescendant),
             "man_of_letters" | "mann_der_schriften" | "men_of_letters" => Ok(Self::ManOfLetters),
             "vampire" | "vampir" | "vampire_alpha" | "vampir_alpha_blutlinie" => {

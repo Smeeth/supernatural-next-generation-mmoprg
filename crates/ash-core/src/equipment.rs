@@ -11,22 +11,22 @@ use crate::error::DomainError;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum EquipmentSlot {
-    Headgear = 1,       // 1. Kopfbedeckung
-    FaceGuard = 2,      // 2. Gesichtsschutz
-    Amulet = 3,         // 3. Amulett
-    Cloak = 4,          // 4. Umhang/Mantel
-    ChestArmor = 5,     // 5. Brustrüstung
-    BracersGloves = 6,  // 6. Armschienen/Handschuhe
-    MainHand = 7,       // 7. Hauptwaffe
-    OffHand = 8,        // 8. Nebenwaffe/Schild
-    Ring1 = 9,          // 9. Ring 1
-    Ring2 = 10,         // 10. Ring 2
-    Belt = 11,          // 11. Gürtel
-    Pouch = 12,         // 12. Bauchtasche (Kampf-Schnellzugriff)
-    Backpack = 13,      // 13. Rucksack ("Mobiler Impala-Kofferraum")
-    LegGuards = 14,     // 14. Beinschutz
-    Boots = 15,         // 15. Schuhe/Stiefel
-    RelicFocus = 16,    // 16. Relikt/Fokus
+    Headgear = 1,      // 1. Kopfbedeckung
+    FaceGuard = 2,     // 2. Gesichtsschutz
+    Amulet = 3,        // 3. Amulett
+    Cloak = 4,         // 4. Umhang/Mantel
+    ChestArmor = 5,    // 5. Brustrüstung
+    BracersGloves = 6, // 6. Armschienen/Handschuhe
+    MainHand = 7,      // 7. Hauptwaffe
+    OffHand = 8,       // 8. Nebenwaffe/Schild
+    Ring1 = 9,         // 9. Ring 1
+    Ring2 = 10,        // 10. Ring 2
+    Belt = 11,         // 11. Gürtel
+    Pouch = 12,        // 12. Bauchtasche (Kampf-Schnellzugriff)
+    Backpack = 13,     // 13. Rucksack ("Mobiler Impala-Kofferraum")
+    LegGuards = 14,    // 14. Beinschutz
+    Boots = 15,        // 15. Schuhe/Stiefel
+    RelicFocus = 16,   // 16. Relikt/Fokus
 }
 
 impl EquipmentSlot {
@@ -303,7 +303,13 @@ impl EssenceWallet {
         self.counts.get(&essence).copied().unwrap_or(0)
     }
 
-    pub fn grant(&mut self, essence: EssenceType, base_amount: u32, race: PlayableRace, _source: EssenceSource) -> u32 {
+    pub fn grant(
+        &mut self,
+        essence: EssenceType,
+        base_amount: u32,
+        race: PlayableRace,
+        _source: EssenceSource,
+    ) -> u32 {
         // Hexe/Hexer Passiv „Buch der Verdammten“: +20% höhere magische Essenz-Ausbeute (aufgerundet)
         let final_amount = if race == PlayableRace::Witch {
             ((base_amount as f32) * 1.20).ceil() as u32
@@ -341,22 +347,89 @@ impl EquipmentLoadout {
         let mut slots = BTreeMap::new();
         for slot in EquipmentSlot::ALL {
             let (code, name, mat, arch) = match slot {
-                EquipmentSlot::Headgear => ("starter_head", "Abgewetzter Staubhut", armor_material, None),
-                EquipmentSlot::FaceGuard => ("starter_face", "Salzgetränktes Halstuch", MaterialTag::Cloth, None),
-                EquipmentSlot::Amulet => ("starter_amulet", "Schutz-Talisman an Lederschnur", MaterialTag::BrassRune, None),
-                EquipmentSlot::Cloak => ("starter_cloak", "Verwitterter Highway-Mantel", armor_material, None),
-                EquipmentSlot::ChestArmor => ("starter_chest", "Geflickte Jäger-Weste", MaterialTag::Leather, None),
-                EquipmentSlot::BracersGloves => ("starter_gloves", "Griffige Lederhandschuhe", MaterialTag::Leather, None),
+                EquipmentSlot::Headgear => {
+                    ("starter_head", "Abgewetzter Staubhut", armor_material, None)
+                }
+                EquipmentSlot::FaceGuard => (
+                    "starter_face",
+                    "Salzgetränktes Halstuch",
+                    MaterialTag::Cloth,
+                    None,
+                ),
+                EquipmentSlot::Amulet => (
+                    "starter_amulet",
+                    "Schutz-Talisman an Lederschnur",
+                    MaterialTag::BrassRune,
+                    None,
+                ),
+                EquipmentSlot::Cloak => (
+                    "starter_cloak",
+                    "Verwitterter Highway-Mantel",
+                    armor_material,
+                    None,
+                ),
+                EquipmentSlot::ChestArmor => (
+                    "starter_chest",
+                    "Geflickte Jäger-Weste",
+                    MaterialTag::Leather,
+                    None,
+                ),
+                EquipmentSlot::BracersGloves => (
+                    "starter_gloves",
+                    "Griffige Lederhandschuhe",
+                    MaterialTag::Leather,
+                    None,
+                ),
                 EquipmentSlot::MainHand => ("starter_main", main_name, main_mat, Some(main_arch)),
                 EquipmentSlot::OffHand => ("starter_off", off_name, off_mat, Some(off_arch)),
-                EquipmentSlot::Ring1 => ("starter_ring1", "Angelaufener Messingring", MaterialTag::BrassRune, None),
-                EquipmentSlot::Ring2 => ("starter_ring2", "Schlichter Siegelring", MaterialTag::ConsecratedSilver, None),
-                EquipmentSlot::Belt => ("starter_belt", "Breiter Patronengurt", MaterialTag::Leather, None),
-                EquipmentSlot::Pouch => ("starter_pouch", "Ausgebeulte Jäger-Bauchtasche", MaterialTag::Leather, None),
-                EquipmentSlot::Backpack => ("starter_backpack", "Mobiler Kofferraum-Seesack", MaterialTag::Leather, None),
-                EquipmentSlot::LegGuards => ("starter_legs", "Verstärkte Staub-Jeans", MaterialTag::Leather, None),
-                EquipmentSlot::Boots => ("starter_boots", "Schwere Roadhouse-Stiefel", MaterialTag::Leather, None),
-                EquipmentSlot::RelicFocus => ("starter_relic", starter_relic_name(race), MaterialTag::BrassRune, None),
+                EquipmentSlot::Ring1 => (
+                    "starter_ring1",
+                    "Angelaufener Messingring",
+                    MaterialTag::BrassRune,
+                    None,
+                ),
+                EquipmentSlot::Ring2 => (
+                    "starter_ring2",
+                    "Schlichter Siegelring",
+                    MaterialTag::ConsecratedSilver,
+                    None,
+                ),
+                EquipmentSlot::Belt => (
+                    "starter_belt",
+                    "Breiter Patronengurt",
+                    MaterialTag::Leather,
+                    None,
+                ),
+                EquipmentSlot::Pouch => (
+                    "starter_pouch",
+                    "Ausgebeulte Jäger-Bauchtasche",
+                    MaterialTag::Leather,
+                    None,
+                ),
+                EquipmentSlot::Backpack => (
+                    "starter_backpack",
+                    "Mobiler Kofferraum-Seesack",
+                    MaterialTag::Leather,
+                    None,
+                ),
+                EquipmentSlot::LegGuards => (
+                    "starter_legs",
+                    "Verstärkte Staub-Jeans",
+                    MaterialTag::Leather,
+                    None,
+                ),
+                EquipmentSlot::Boots => (
+                    "starter_boots",
+                    "Schwere Roadhouse-Stiefel",
+                    MaterialTag::Leather,
+                    None,
+                ),
+                EquipmentSlot::RelicFocus => (
+                    "starter_relic",
+                    starter_relic_name(race),
+                    MaterialTag::BrassRune,
+                    None,
+                ),
             };
 
             let item = EquipmentItem {

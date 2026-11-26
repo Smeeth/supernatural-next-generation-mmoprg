@@ -7,9 +7,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
+use ash_protocol::codec::{decode_frame_payload, encode_frame_payload, ASH_ALPN, MAX_FRAME_SIZE};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
-use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
+use quinn::{
+    ClientConfig, Connection, Endpoint, RecvStream, SendStream, ServerConfig, TransportConfig,
+};
 use rcgen::{
     BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
     KeyPair, KeyUsagePurpose, SanType,
@@ -17,11 +20,60 @@ use rcgen::{
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::RootCertStore;
-
-pub const ASH_ALPN: &[u8] = b"ash-quic-v1";
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 fn ensure_crypto_provider() {
     let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
+/// Schreibt einen längenpräfixierten binären Frame (`u32` BE + `bincode`) auf einen Reliable QUIC-Stream.
+pub async fn write_frame<T: Serialize>(send: &mut SendStream, msg: &T) -> Result<()> {
+    let payload = encode_frame_payload(msg)?;
+    let len_bytes = (payload.len() as u32).to_be_bytes();
+    send.write_all(&len_bytes)
+        .await
+        .context("write frame length")?;
+    send.write_all(&payload)
+        .await
+        .context("write frame payload")?;
+    Ok(())
+}
+
+/// Liest einen längenpräfixierten binären Frame von einem Reliable QUIC-Stream.
+pub async fn read_frame<T: DeserializeOwned>(recv: &mut RecvStream) -> Result<T> {
+    let mut len_buf = [0u8; 4];
+    recv.read_exact(&mut len_buf)
+        .await
+        .context("read frame length")?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+    if len > MAX_FRAME_SIZE {
+        bail!("incoming QUIC frame exceeds max size ({len} bytes)");
+    }
+    let mut buf = vec![0u8; len];
+    recv.read_exact(&mut buf)
+        .await
+        .context("read frame payload")?;
+    decode_frame_payload(&buf)
+}
+
+/// Schreibt eine Server-Antwort auf `SendStream`, markiert `finish()` und wartet auf Stream-Abschluss.
+pub async fn send_response_and_close<T: Serialize>(mut send: SendStream, msg: &T) -> Result<()> {
+    write_frame(&mut send, msg).await?;
+    send.finish().context("finish QUIC response stream")?;
+    let _ = tokio::time::timeout(Duration::from_secs(3), send.stopped()).await;
+    Ok(())
+}
+
+/// Führt einen atomaren Request/Response-Austausch über einen eigenen bidirektionalen QUIC-Stream aus.
+pub async fn rpc_call<Req: Serialize, Resp: DeserializeOwned>(
+    conn: &Connection,
+    req: &Req,
+) -> Result<Resp> {
+    let (mut send, mut recv) = conn.open_bi().await.context("open QUIC bi-stream")?;
+    write_frame(&mut send, req).await?;
+    send.finish().context("finish QUIC request stream")?;
+    read_frame(&mut recv).await
 }
 
 /// Vollständiges lokales PKI-Bundle (Root-CA + mTLS-Zertifikate für Server & Mesh-Clients).
@@ -33,8 +85,7 @@ pub struct GeneratedPki {
     pub node_key_pem: String,
 }
 
-/// Erzeugt die lokale Ash-Net Root-CA sowie universelle SAN-Zertifikate für `auth-gateway`,
-/// `irc-bridge`, `game-node-roadhouse`, `game-node-frontier`, `game-node-raid` und `localhost`.
+/// Erzeugt die lokale Ash-Net Root-CA sowie universelle SAN-Zertifikate für das Server-Mesh.
 pub fn generate_ash_pki() -> Result<GeneratedPki> {
     ensure_crypto_provider();
 
@@ -93,7 +144,7 @@ pub fn generate_ash_pki() -> Result<GeneratedPki> {
     })
 }
 
-/// Schreibt `ca.crt`, `ca.key` sowie Zertifikate für alle Dienste in ein Zielverzeichnis (`pki-init`).
+/// Schreibt `ca.crt`, `ca.key` sowie Zertifikate für alle Server-Dienste (`pki-init`).
 pub fn write_pki_directory(dir: &Path) -> Result<()> {
     fs::create_dir_all(dir).context("create PKI directory")?;
     let ca_path = dir.join("ca.crt");
@@ -142,8 +193,7 @@ fn default_transport_config() -> Arc<TransportConfig> {
     Arc::new(transport)
 }
 
-/// Erstellt einen QUIC-Server-Endpoint. Wenn `mtls_ca_pem` gesetzt ist, wird zwingend mTLS
-/// (Client-Zertifikatsprüfung gegen die Ash-Net Root-CA) für das Server-Mesh erzwungen.
+/// Erstellt einen QUIC-Server-Endpoint (optional mit mTLS Client-Zertifikatszwang für das Server-Mesh).
 pub fn build_quic_server(
     bind_addr: SocketAddr,
     cert_pem: &[u8],
@@ -181,7 +231,7 @@ pub fn build_quic_server(
     Endpoint::server(server_config, bind_addr).context("bind QUIC server endpoint")
 }
 
-/// Erstellt einen QUIC-Client-Endpoint (optional mit Client-Zertifikat für mTLS im Server-Mesh).
+/// Erstellt einen QUIC-Client-Endpoint für Server-zu-Server-mTLS (oder Test-Clients im Server-Harness).
 pub fn build_quic_client(
     bind_addr: SocketAddr,
     ca_pem: &[u8],
@@ -190,7 +240,9 @@ pub fn build_quic_client(
     ensure_crypto_provider();
     let mut roots = RootCertStore::empty();
     for cert in load_certs_from_pem(ca_pem)? {
-        roots.add(cert).context("add CA cert to client root store")?;
+        roots
+            .add(cert)
+            .context("add CA cert to client root store")?;
     }
 
     let builder = rustls::ClientConfig::builder().with_root_certificates(roots);

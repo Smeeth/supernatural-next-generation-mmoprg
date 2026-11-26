@@ -1,0 +1,5 @@
+# Ash-Net: New Lawrence — Windsurf Rules Adapter
+1. **Single Source of Truth:** Alle Projektregeln liegen ausschließlich in `AGENTS.md` und `.agents/` (hier nichts duplizieren).
+2. **Pflicht-Einstieg:** Lies zuerst `AGENTS.md`, `.agents/STATUS.md`, `.agents/00-invariants.md`, `.agents/03-scope-guardrails.md` und `.agents/05-client-server-boundary.md`.
+3. **3-Säulen-Trennung:** Respektiere strikt die Monorepo-Isolation (`SHARED` / `SERVER` / `CLIENT`) und arbeite nur im freigegebenen Sprint-Scope.
+4. **Pflicht-Exit:** Führe vor Abschluss `./scripts/check-invariants.sh` aus und aktualisiere `.agents/STATUS.md`.

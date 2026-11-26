@@ -62,7 +62,10 @@ impl OmenIndex {
     }
 
     pub fn requires_irc_radio_alert(self) -> bool {
-        matches!(self, Self::HellgateBreach | Self::InvasionOrHeavenIntervention)
+        matches!(
+            self,
+            Self::HellgateBreach | Self::InvasionOrHeavenIntervention
+        )
     }
 
     pub fn format_irc_alert(self, zone_id: &str) -> String {
@@ -120,8 +123,13 @@ impl MalphasEncounter {
         if self.hellhound_timer_secs <= 0.0 {
             self.hellhound_timer_secs += 60.0;
             for idx in 1..=2 {
-                let mut alpha =
-                    EnemyCombatState::new(format!("Höllenhund-Alpha #{idx}"), 8_000, false, 4.0 * idx as f32, 0.0);
+                let mut alpha = EnemyCombatState::new(
+                    format!("Höllenhund-Alpha #{idx}"),
+                    8_000,
+                    false,
+                    4.0 * idx as f32,
+                    0.0,
+                );
                 alpha.invulnerable_phase = true; // Unverwundbar — erfordert 30-Sek.-Bann-Sheep!
                 self.hellhound_alphas.push(alpha);
             }
@@ -133,7 +141,8 @@ impl MalphasEncounter {
             self.boss
                 .active_boss_buffs
                 .push("Entfesselter Schwefelzorn".to_string());
-            events.push("Malphas erreicht 50% HP — Phase 2 (Doppelagent-Fenster offen)!".to_string());
+            events
+                .push("Malphas erreicht 50% HP — Phase 2 (Doppelagent-Fenster offen)!".to_string());
         }
 
         events
@@ -168,7 +177,8 @@ impl Default for SarielEncounter {
 
 impl SarielEncounter {
     pub fn new() -> Self {
-        let boss = EnemyCombatState::new("Sariel, Zelot der Himmelsgarnison", 46_000, true, 0.0, 0.0);
+        let boss =
+            EnemyCombatState::new("Sariel, Zelot der Himmelsgarnison", 46_000, true, 0.0, 0.0);
         let guard = EnemyCombatState::new("Engels-Wache der Garnison", 9_500, false, 6.0, 2.0);
         Self {
             boss,
@@ -353,7 +363,7 @@ pub enum IrcSlashCommand {
 
 impl IrcSlashCommand {
     pub fn parse_chat_line(line: &str) -> Option<Self> {
-        let first = line.trim().split_whitespace().next()?.to_lowercase();
+        let first = line.split_whitespace().next()?.to_lowercase();
         match first.as_str() {
             "/winken" | "!winken" => Some(Self::Winken),
             "/grüßen" | "/gruessen" | "!grüßen" | "!gruessen" => Some(Self::Gruessen),

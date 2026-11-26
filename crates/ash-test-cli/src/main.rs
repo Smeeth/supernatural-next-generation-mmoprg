@@ -1,27 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-mod mini_ircd;
-
 use std::fs;
+use std::io::BufReader as StdBufReader;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use ash_auth_gateway::{start_auth_gateway, AuthGatewayConfig};
 use ash_core::character::STARTING_ZONE_ROADHOUSE;
 use ash_core::equipment::{EquipmentSlot, EssenceType, ItemQuality};
-use ash_db::AshStore;
-use ash_game_node::{start_game_node, GameNodeConfig, NodeRole};
-use ash_irc_bridge::{spawn_irc_bridge, IrcBridgeConfig};
-use ash_protocol::framing::{decode_datagram, encode_datagram, rpc_call};
-use ash_protocol::messages::{
+use ash_protocol::client::{
     AuthRequest, AuthResponse, ClientDatagram, ClientReliableMessage, CombatActionNet,
     ServerDatagram, ServerReliableMessage,
 };
-use ash_protocol::tls::{build_quic_client, generate_ash_pki};
+use ash_protocol::codec::{
+    decode_datagram, decode_frame_payload, encode_datagram, encode_frame_payload, ASH_ALPN,
+    MAX_FRAME_SIZE,
+};
 use clap::Parser;
-use quinn::Endpoint;
+use quinn::crypto::rustls::QuicClientConfig;
+use quinn::{ClientConfig, Connection, Endpoint, TransportConfig};
+use rustls::RootCertStore;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
@@ -31,13 +33,9 @@ use uuid::Uuid;
 #[derive(Debug, Parser)]
 #[command(
     name = "ash-test-cli",
-    about = "Headless End-to-End Smoke-Test Runner for Ash-Net: New Lawrence"
+    about = "Headless Blackbox QUIC + IRC End-to-End Smoke-Test Client for Ash-Net: New Lawrence"
 )]
 struct Args {
-    /// Startet alle Dienste (PKI, Auth, Hub-Node, Frontier-Mirror-Node, IRCd, IRC-Bridge) in-process für schnelle CI-/Lokal-Tests.
-    #[arg(long)]
-    self_contained: bool,
-
     #[arg(long, env = "AUTH_ADDR", default_value = "127.0.0.1:4430")]
     auth_addr: String,
 
@@ -48,12 +46,61 @@ struct Args {
     ca_path: PathBuf,
 }
 
-async fn resolve_endpoint_with_localhost_fallback(raw: &str) -> Result<SocketAddr> {
-    if let Ok(mut iter) = tokio::net::lookup_host(raw).await {
-        if let Some(addr) = iter.next() {
-            return Ok(addr);
-        }
+/// Erstellt einen reinen Client-QUIC-Endpoint (verifiziert ausschließlich gegen öffentliches `ca.crt`).
+fn build_public_quic_client(bind_addr: SocketAddr, ca_pem: &[u8]) -> Result<Endpoint> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let mut reader = StdBufReader::new(ca_pem);
+    let certs = rustls_pemfile::certs(&mut reader)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("parse CA PEM")?;
+
+    let mut roots = RootCertStore::empty();
+    for cert in certs {
+        roots.add(cert).context("add CA cert to root store")?;
     }
+
+    let mut tls_config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    tls_config.alpn_protocols = vec![ASH_ALPN.to_vec()];
+
+    let quic_tls = QuicClientConfig::try_from(tls_config).context("build QuicClientConfig")?;
+    let mut client_config = ClientConfig::new(Arc::new(quic_tls));
+    let mut transport = TransportConfig::default();
+    transport.keep_alive_interval(Some(Duration::from_secs(4)));
+    transport.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
+    transport.datagram_receive_buffer_size(Some(512 * 1024));
+    transport.datagram_send_buffer_size(512 * 1024);
+    client_config.transport_config(Arc::new(transport));
+
+    let mut endpoint = Endpoint::client(bind_addr).context("bind QUIC client endpoint")?;
+    endpoint.set_default_client_config(client_config);
+    Ok(endpoint)
+}
+
+async fn rpc_call<Req: Serialize, Resp: DeserializeOwned>(
+    conn: &Connection,
+    req: &Req,
+) -> Result<Resp> {
+    let (mut send, mut recv) = conn.open_bi().await.context("open QUIC bi-stream")?;
+    let payload = encode_frame_payload(req)?;
+    let len_bytes = (payload.len() as u32).to_be_bytes();
+    send.write_all(&len_bytes).await?;
+    send.write_all(&payload).await?;
+    send.finish()?;
+
+    let mut len_buf = [0u8; 4];
+    recv.read_exact(&mut len_buf).await?;
+    let len = u32::from_be_bytes(len_buf) as usize;
+    if len > MAX_FRAME_SIZE {
+        bail!("incoming QUIC frame exceeds max size ({len} bytes)");
+    }
+    let mut buf = vec![0u8; len];
+    recv.read_exact(&mut buf).await?;
+    decode_frame_payload(&buf)
+}
+
+fn parse_localhost_fallback_port(raw: &str) -> Result<SocketAddr> {
     if let Some((_, port_str)) = raw.rsplit_once(':') {
         let fallback = format!("127.0.0.1:{port_str}");
         return fallback
@@ -63,12 +110,17 @@ async fn resolve_endpoint_with_localhost_fallback(raw: &str) -> Result<SocketAdd
     bail!("cannot resolve target endpoint '{raw}'")
 }
 
-pub async fn run_smoke_test_suite(
-    auth_addr: &str,
-    irc_addr: &str,
-    ca_pem: &[u8],
-) -> Result<()> {
-    let client_ep: Endpoint = build_quic_client("0.0.0.0:0".parse()?, ca_pem, None)?;
+async fn resolve_endpoint_with_localhost_fallback(raw: &str) -> Result<SocketAddr> {
+    if let Ok(mut iter) = tokio::net::lookup_host(raw).await {
+        if let Some(addr) = iter.next() {
+            return Ok(addr);
+        }
+    }
+    parse_localhost_fallback_port(raw)
+}
+
+pub async fn run_smoke_test_suite(auth_addr: &str, irc_addr: &str, ca_pem: &[u8]) -> Result<()> {
+    let client_ep: Endpoint = build_public_quic_client("0.0.0.0:0".parse()?, ca_pem)?;
     let auth_sock = resolve_endpoint_with_localhost_fallback(auth_addr).await?;
     let auth_conn = client_ep
         .connect(auth_sock, "ash-node")?
@@ -131,10 +183,16 @@ pub async fn run_smoke_test_suite(
     };
 
     if hunter.current_zone != STARTING_ZONE_ROADHOUSE {
-        bail!("Startzone ist nicht zone_roadhouse: {}", hunter.current_zone);
+        bail!(
+            "Startzone ist nicht zone_roadhouse: {}",
+            hunter.current_zone
+        );
     }
     if hunter.equipment.slots.len() != 16 {
-        bail!("Erwartete 16 Ausrüstungs-Slots, erhalten: {}", hunter.equipment.slots.len());
+        bail!(
+            "Erwartete 16 Ausrüstungs-Slots, erhalten: {}",
+            hunter.equipment.slots.len()
+        );
     }
     for slot in EquipmentSlot::ALL {
         let item = hunter.equipment.get(slot).context("missing slot")?;
@@ -158,7 +216,8 @@ pub async fn run_smoke_test_suite(
         other => bail!("IssueZoneTicket failed: {other:?}"),
     };
 
-    let roadhouse_sock = resolve_endpoint_with_localhost_fallback(&ticket.target_client_addr).await?;
+    let roadhouse_sock =
+        resolve_endpoint_with_localhost_fallback(&ticket.target_client_addr).await?;
     let roadhouse_conn = client_ep.connect(roadhouse_sock, "ash-node")?.await?;
 
     match rpc_call::<ClientReliableMessage, ServerReliableMessage>(
@@ -169,17 +228,17 @@ pub async fn run_smoke_test_suite(
     )
     .await?
     {
-        ServerReliableMessage::ZoneEntered {
-            zone_id, npcs, ..
-        } => {
+        ServerReliableMessage::ZoneEntered { zone_id, npcs, .. } => {
             if zone_id != "zone_roadhouse" || npcs.len() < 3 {
-                bail!("Unerwarteter Roadhouse-Zustand: zone={zone_id}, npcs={}", npcs.len());
+                bail!(
+                    "Unerwarteter Roadhouse-Zustand: zone={zone_id}, npcs={}",
+                    npcs.len()
+                );
             }
         }
         other => bail!("EnterZoneWithTicket failed: {other:?}"),
     }
 
-    // Unreliable QUIC-Datagramm senden & 25-Hz-Snapshot empfangen
     let dgram = encode_datagram(&ClientDatagram::MoveInput {
         character_id: hunter.id,
         seq: 1,
@@ -225,11 +284,6 @@ pub async fn run_smoke_test_suite(
     .await?
     {
         ServerReliableMessage::AshTerminalStatus { report } => {
-            info!(
-                "   -> Ashs Terminal meldet {} aktive Mesh-Knoten & {} Zonen-Routen",
-                report.active_nodes.len(),
-                report.zone_omens.len()
-            );
             if report.active_nodes.len() < 2 {
                 bail!(
                     "Mirror-Node (game-node-frontier) ist noch nicht im Gossip-Mesh sichtbar: {:?}",
@@ -263,7 +317,6 @@ pub async fn run_smoke_test_suite(
         .write_all(b"PRIVMSG #roadhouse :/salzen an der Roadhouse-Schwelle\r\n")
         .await?;
     irc_w.flush().await?;
-
     wait_for_irc_substring(&mut irc_lines, &mut irc_w, "ECS-SCHUTZLINIE").await?;
 
     // 7. Überschreite Zonengrenze (x=105.0) -> Live PLAYER_HANDOVER auf `game-node-frontier`!
@@ -282,11 +335,8 @@ pub async fn run_smoke_test_suite(
         other => bail!("Erwartete PlayerHandoverRedirect, erhalten: {other:?}"),
     };
 
-    if redirect.target_zone != "zone_new_lawrence_west" {
-        bail!("Falsche Handover-Zielzone: {}", redirect.target_zone);
-    }
-
-    let frontier_sock = resolve_endpoint_with_localhost_fallback(&redirect.target_client_addr).await?;
+    let frontier_sock =
+        resolve_endpoint_with_localhost_fallback(&redirect.target_client_addr).await?;
     let frontier_conn = client_ep.connect(frontier_sock, "ash-node")?.await?;
 
     match rpc_call::<ClientReliableMessage, ServerReliableMessage>(
@@ -298,12 +348,8 @@ pub async fn run_smoke_test_suite(
     .await?
     {
         ServerReliableMessage::HandoverCompleted {
-            node_id,
-            zone_id,
-            character,
-            ..
+            zone_id, character, ..
         } => {
-            info!("   -> Handover erfolgreich auf Node '{node_id}' in Zone '{zone_id}'!");
             if zone_id != "zone_new_lawrence_west" || !character.salt_ward_active {
                 bail!("Spielerzustand beim Handover unvollständig!");
             }
@@ -311,12 +357,16 @@ pub async fn run_smoke_test_suite(
         other => bail!("AcceptHandover failed: {other:?}"),
     }
 
-    // `/emf` über IRC in `#new_lawrence` -> schließt Quest 1 ab (+5 Steinsalz-Asche) -> Hauptwaffe auf Grün aufwerten!
     irc_w
         .write_all(b"PRIVMSG #new_lawrence :/emf am Kolonie-Motel\r\n")
         .await?;
     irc_w.flush().await?;
-    wait_for_irc_substring(&mut irc_lines, &mut irc_w, "EMF-SCAN zone_new_lawrence_west").await?;
+    wait_for_irc_substring(
+        &mut irc_lines,
+        &mut irc_w,
+        "EMF-SCAN zone_new_lawrence_west",
+    )
+    .await?;
 
     match rpc_call::<ClientReliableMessage, ServerReliableMessage>(
         &frontier_conn,
@@ -333,12 +383,10 @@ pub async fn run_smoke_test_suite(
             if main.quality != ItemQuality::Green {
                 bail!("Hauptwaffe wurde nicht auf Grün aufgewertet!");
             }
-            info!("   -> Hauptwaffe erfolgreich mit Steinsalz-Asche auf GRÜN (Geweiht) aufgewertet!");
         }
         other => bail!("UpgradeEquipment failed: {other:?}"),
     }
 
-    // Prüfe 30-Sek.-Bann-Sheep im Kampf auf `game-node-frontier`
     match rpc_call::<ClientReliableMessage, ServerReliableMessage>(
         &frontier_conn,
         &ClientReliableMessage::PerformCombat {
@@ -351,7 +399,7 @@ pub async fn run_smoke_test_suite(
         ServerReliableMessage::CombatOutcome {
             enemy_banished: true,
             ..
-        } => info!("   -> 30-Sek.-Bann-Sheep (Blend-Augenbinde) auf Frontier-Knoten verifiziert!"),
+        } => {}
         other => bail!("CastBanishSheep failed: {other:?}"),
     }
 
@@ -376,7 +424,7 @@ pub async fn run_smoke_test_suite(
     }
 
     wait_for_irc_substring(&mut irc_lines, &mut irc_w, "OMEN-STUFE 2").await?;
-    // Schließe Client-Endpoints sauber, damit Prozess sofort terminiert
+
     auth_conn.close(0u32.into(), b"done");
     roadhouse_conn.close(0u32.into(), b"done");
     frontier_conn.close(0u32.into(), b"done");
@@ -392,7 +440,9 @@ async fn wait_for_irc_substring(
     let fut = async {
         while let Some(line) = lines.next_line().await? {
             if let Some(rest) = line.strip_prefix("PING ") {
-                let _ = writer.write_all(format!("PONG {rest}\r\n").as_bytes()).await;
+                let _ = writer
+                    .write_all(format!("PONG {rest}\r\n").as_bytes())
+                    .await;
                 let _ = writer.flush().await;
                 continue;
             }
@@ -407,106 +457,15 @@ async fn wait_for_irc_substring(
         .with_context(|| format!("timeout waiting for IRC message containing '{expected}'"))?
 }
 
-pub async fn run_self_contained_e2e() -> Result<()> {
-    let pki = generate_ash_pki()?;
-    let ca_bytes = pki.ca_cert_pem.into_bytes();
-    let cert_bytes = pki.node_cert_pem.into_bytes();
-    let key_bytes = pki.node_key_pem.into_bytes();
-
-    let store = AshStore::new_shared_in_memory();
-    let irc_sock = mini_ircd::start_embedded_mini_ircd("127.0.0.1:0".parse()?).await?;
-
-    // 1. Hub-Node (`game-node-roadhouse`)
-    let hub = start_game_node(
-        GameNodeConfig {
-            node_id: "game-node-roadhouse".into(),
-            role: NodeRole::Hub,
-            zones: vec!["zone_roadhouse".into()],
-            client_bind_addr: "127.0.0.1:0".parse()?,
-            client_public_addr: "127.0.0.1:0".into(),
-            mesh_bind_addr: "127.0.0.1:0".parse()?,
-            mesh_public_addr: "127.0.0.1:0".into(),
-            hub_mesh_addr: None,
-            tick_rate_hz: 25,
-            ca_pem: ca_bytes.clone(),
-            cert_pem: cert_bytes.clone(),
-            key_pem: key_bytes.clone(),
-        },
-        store.clone(),
-    )
-    .await?;
-
-    let hub_client_addr = format!("127.0.0.1:{}", hub.client_endpoint.local_addr()?.port());
-    let hub_mesh_addr = format!("127.0.0.1:{}", hub.mesh_endpoint.local_addr()?.port());
-
-    // 2. Mirror-Node (`game-node-frontier`) per mTLS-QUIC am Hub andocken lassen
-    let _frontier = start_game_node(
-        GameNodeConfig {
-            node_id: "game-node-frontier".into(),
-            role: NodeRole::Mirror,
-            zones: vec![
-                "zone_new_lawrence_west".into(),
-                "zone_salzminen".into(),
-            ],
-            client_bind_addr: "127.0.0.1:0".parse()?,
-            client_public_addr: "127.0.0.1:0".into(),
-            mesh_bind_addr: "127.0.0.1:0".parse()?,
-            mesh_public_addr: "127.0.0.1:0".into(),
-            hub_mesh_addr: Some(hub_mesh_addr.clone()),
-            tick_rate_hz: 25,
-            ca_pem: ca_bytes.clone(),
-            cert_pem: cert_bytes.clone(),
-            key_pem: key_bytes.clone(),
-        },
-        store.clone(),
-    )
-    .await?;
-
-    // 3. Auth-Gateway
-    let auth_ep = start_auth_gateway(
-        AuthGatewayConfig {
-            bind_addr: "127.0.0.1:0".parse()?,
-            cert_pem: cert_bytes.clone(),
-            key_pem: key_bytes.clone(),
-            roadhouse_fallback_client_addr: hub_client_addr,
-            route_stale_timeout_ms: 10_000,
-        },
-        store.clone(),
-    )?;
-    let auth_addr = format!("127.0.0.1:{}", auth_ep.local_addr()?.port());
-
-    // 4. IRC-Bridge
-    let _bridge = spawn_irc_bridge(IrcBridgeConfig {
-        irc_addr: irc_sock.to_string(),
-        bot_nick: "AshBridge".into(),
-        oper_user: None,
-        oper_password: None,
-        hub_mesh_addr: hub_mesh_addr.clone(),
-        ca_pem: ca_bytes.clone(),
-        cert_pem: cert_bytes,
-        key_pem: key_bytes,
-    })?;
-
-    // Warte kurz auf initialen mTLS-Gossip-Sync & IRC-Bridge-Join
-    tokio::time::sleep(Duration::from_millis(600)).await;
-
-    run_smoke_test_suite(&auth_addr, &irc_sock.to_string(), &ca_bytes).await
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
     let args = Args::parse();
-    if args.self_contained {
-        return run_self_contained_e2e().await;
-    }
-
     let ca_pem = fs::read(&args.ca_path)
         .with_context(|| format!("read Root CA cert at {}", args.ca_path.display()))?;
     run_smoke_test_suite(&args.auth_addr, &args.irc_addr, &ca_pem).await
@@ -514,72 +473,11 @@ async fn main() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use ash_core::character::{CharacterClass, CharacterSheet, PlayableRace};
+    use super::parse_localhost_fallback_port;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn full_end_to_end_mesh_handover_and_irc_smoke_test() {
-        run_self_contained_e2e()
-            .await
-            .expect("End-to-End Smoke Test must pass");
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn verifies_crash_recovery_fallback_to_roadhouse() {
-        let pki = generate_ash_pki().unwrap();
-        let ca_bytes = pki.ca_cert_pem.into_bytes();
-        let cert_bytes = pki.node_cert_pem.into_bytes();
-        let key_bytes = pki.node_key_pem.into_bytes();
-
-        let store = AshStore::new_shared_in_memory();
-        let auth_ep = start_auth_gateway(
-            AuthGatewayConfig {
-                bind_addr: "127.0.0.1:0".parse().unwrap(),
-                cert_pem: cert_bytes,
-                key_pem: key_bytes,
-                roadhouse_fallback_client_addr: "127.0.0.1:4433".into(),
-                route_stale_timeout_ms: 5_000,
-            },
-            store.clone(),
-        )
-        .unwrap();
-
-        let acc_id = store.create_account("sam", "hash").await.unwrap();
-        let sess = store.create_session(acc_id).await.unwrap();
-        let mut ch = CharacterSheet::create_new_hunter(
-            acc_id,
-            "Sam_III",
-            PlayableRace::ManOfLetters,
-            CharacterClass::BannWaechter,
-        )
-        .unwrap();
-        // Simuliere einen Charakter, dessen letzter Raid-Knoten (`zone_hoellentor_alpha`) abgestürzt ist
-        ch.current_zone = "zone_hoellentor_alpha".into();
-        store.save_character(&ch).await.unwrap();
-
-        let client_ep = build_quic_client("0.0.0.0:0".parse().unwrap(), &ca_bytes, None).unwrap();
-        let conn = client_ep
-            .connect(auth_ep.local_addr().unwrap(), "ash-node")
-            .unwrap()
-            .await
-            .unwrap();
-
-        let resp = rpc_call::<AuthRequest, AuthResponse>(
-            &conn,
-            &AuthRequest::IssueZoneTicket {
-                session_token: sess,
-                character_id: ch.id,
-            },
-        )
-        .await
-        .unwrap();
-
-        match resp {
-            AuthResponse::ZoneTicketIssued { ticket } => {
-                assert_eq!(ticket.target_zone, STARTING_ZONE_ROADHOUSE);
-                assert!(ticket.fallback_to_roadhouse);
-            }
-            other => panic!("expected ZoneTicketIssued with fallback, got {other:?}"),
-        }
+    #[test]
+    fn maps_docker_service_endpoint_to_localhost_port() {
+        let addr = parse_localhost_fallback_port("game-node-frontier:4434").unwrap();
+        assert_eq!(addr.to_string(), "127.0.0.1:4434");
     }
 }

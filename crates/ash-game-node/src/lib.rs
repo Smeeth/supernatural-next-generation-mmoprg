@@ -16,16 +16,16 @@ use ash_core::world::{
     IrcSlashCommand, MalphasEncounter, NpcDefinition, OmenIndex, QuestCatalog, SarielEncounter,
     ZoneCatalog, ZoneDefinition,
 };
-use ash_db::{now_epoch_ms, AshStore};
-use ash_protocol::framing::{
-    decode_datagram, encode_datagram, read_frame, rpc_call, send_response_and_close,
+use ash_db::transport::{
+    build_quic_client, build_quic_server, read_frame, rpc_call, send_response_and_close,
 };
+use ash_db::{now_epoch_ms, AshStore};
+use ash_protocol::codec::{decode_datagram, encode_datagram};
 use ash_protocol::messages::{
     AshTerminalReport, ClientDatagram, ClientReliableMessage, ClusterNodeInfo, CombatActionNet,
     EntityPositionNet, HandoverRedirectInfo, MeshMessage, MeshResponse, OmenAlertEvent,
     PlayerHandoverState, QuestStateDto, ServerDatagram, ServerReliableMessage, ZoneRouteInfo,
 };
-use ash_protocol::tls::{build_quic_client, build_quic_server};
 use hecs::{Entity, World};
 use quinn::{Connection, Endpoint};
 use tokio::sync::Mutex;
@@ -690,11 +690,7 @@ async fn execute_irc_slash_in_ecs(
     let store = g.store.clone();
     let quest_cat = g.quest_catalog.clone();
 
-    let omen_level = g
-        .zones
-        .get(&zone_id)
-        .map(|z| z.omen.level())
-        .unwrap_or(0);
+    let omen_level = g.zones.get(&zone_id).map(|z| z.omen.level()).unwrap_or(0);
     let omen = OmenIndex::from_u8(omen_level);
 
     // Versuche aktiven Spieler in der Zone oder in der DB zu finden
@@ -716,7 +712,11 @@ async fn execute_irc_slash_in_ecs(
     drop(g);
 
     if char_opt.is_none() {
-        char_opt = store.load_character_by_name(&lookup_name).await.ok().flatten();
+        char_opt = store
+            .load_character_by_name(&lookup_name)
+            .await
+            .ok()
+            .flatten();
     }
 
     let mut quest_updated = None;
@@ -847,7 +847,10 @@ async fn handle_client_reliable(
             let node_id = g.cfg.node_id.clone();
             let Some(zr) = g.zones.get_mut(&ticket.target_zone) else {
                 return ServerReliableMessage::Error {
-                    message: format!("Zone '{}' wird auf diesem Node nicht gehostet", ticket.target_zone),
+                    message: format!(
+                        "Zone '{}' wird auf diesem Node nicht gehostet",
+                        ticket.target_zone
+                    ),
                 };
             };
             let zone_name = zr.def.name.clone();
@@ -870,12 +873,13 @@ async fn handle_client_reliable(
         ClientReliableMessage::AcceptHandover { handover_token } => {
             let (staged_opt, store) = {
                 let mut g = st.lock().await;
-                (
-                    g.staged_handovers.remove(&handover_token),
-                    g.store.clone(),
-                )
+                (g.staged_handovers.remove(&handover_token), g.store.clone())
             };
-            let redis_opt = store.consume_handover_token(&handover_token).await.ok().flatten();
+            let redis_opt = store
+                .consume_handover_token(&handover_token)
+                .await
+                .ok()
+                .flatten();
             let Some(handover) = staged_opt.or(redis_opt) else {
                 return ServerReliableMessage::Error {
                     message: "Ungültiger oder abgelaufener PLAYER_HANDOVER-Token".into(),
@@ -920,7 +924,11 @@ async fn handle_client_reliable(
         } => {
             let (store, quest_cat, zone_cat) = {
                 let g = st.lock().await;
-                (g.store.clone(), g.quest_catalog.clone(), g.zone_catalog.clone())
+                (
+                    g.store.clone(),
+                    g.quest_catalog.clone(),
+                    g.zone_catalog.clone(),
+                )
             };
             let Ok(Some(ch)) = store.load_character(character_id).await else {
                 return ServerReliableMessage::Error {
@@ -934,7 +942,10 @@ async fn handle_client_reliable(
                 .cloned();
             let Some(npc) = npc_def else {
                 return ServerReliableMessage::Error {
-                    message: format!("NPC/Objekt '{npc_id}' ist nicht in Zone '{}'", ch.current_zone),
+                    message: format!(
+                        "NPC/Objekt '{npc_id}' ist nicht in Zone '{}'",
+                        ch.current_zone
+                    ),
                 };
             };
 
@@ -1180,7 +1191,8 @@ async fn execute_zone_combat(
         };
         if zr.def.safe_sanctuary {
             return ServerReliableMessage::Error {
-                message: "Harvelle's Roadhouse ist eine PvE-Schutzzone — hier ruhen die Waffen!".into(),
+                message: "Harvelle's Roadhouse ist eine PvE-Schutzzone — hier ruhen die Waffen!"
+                    .into(),
             };
         }
         let Ok(p) = zr.world.get::<&PlayerEcsComp>(entity) else {
@@ -1237,23 +1249,25 @@ async fn execute_zone_combat(
                     top_aggro_holder: zr.aggro.top_target(),
                 };
             }
-            CombatActionNet::CastBanishSheep => match apply_banish_sheep(sheet.class, first_enemy) {
-                Ok(spell) => {
-                    let hp = first_enemy.hp;
-                    let banished = first_enemy.is_banished();
-                    return ServerReliableMessage::CombatOutcome {
-                        summary: format!("{} wirkt 30s Bann-Sheep: {spell}", sheet.name),
-                        enemy_hp: hp,
-                        enemy_banished: banished,
-                        top_aggro_holder: zr.aggro.top_target(),
-                    };
-                }
-                Err(e) => {
-                    return ServerReliableMessage::Error {
-                        message: e.to_string(),
+            CombatActionNet::CastBanishSheep => {
+                match apply_banish_sheep(sheet.class, first_enemy) {
+                    Ok(spell) => {
+                        let hp = first_enemy.hp;
+                        let banished = first_enemy.is_banished();
+                        return ServerReliableMessage::CombatOutcome {
+                            summary: format!("{} wirkt 30s Bann-Sheep: {spell}", sheet.name),
+                            enemy_hp: hp,
+                            enemy_banished: banished,
+                            top_aggro_holder: zr.aggro.top_target(),
+                        };
+                    }
+                    Err(e) => {
+                        return ServerReliableMessage::Error {
+                            message: e.to_string(),
+                        }
                     }
                 }
-            },
+            }
             CombatActionNet::CastPyromancerWildfire => {
                 for e in zr.enemies.iter_mut().take(3) {
                     cast_pyromancer_fire_spell(PyromancerFireSpell::QuickMolotow, e);

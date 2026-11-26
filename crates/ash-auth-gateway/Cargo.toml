@@ -6,6 +6,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[package.metadata.ash]
+zone = "server"
+
 [lib]
 name = "ash_auth_gateway"
 path = "src/lib.rs"

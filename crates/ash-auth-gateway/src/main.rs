@@ -6,13 +6,16 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use ash_auth_gateway::{start_auth_gateway, AuthGatewayConfig};
+use ash_db::transport::write_pki_directory;
 use ash_db::AshStore;
-use ash_protocol::tls::write_pki_directory;
 use clap::Parser;
 use tracing::info;
 
 #[derive(Debug, Parser)]
-#[command(name = "ash-auth-gateway", about = "Ash-Net QUIC Auth & Character Gateway")]
+#[command(
+    name = "ash-auth-gateway",
+    about = "Ash-Net QUIC Auth & Character Gateway"
+)]
 struct Args {
     /// Optionaler Init-Modus für den `pki-init`-Container: generiert Root-CA und mTLS-Zertifikate und beendet sich.
     #[arg(long, env = "INIT_PKI_ONLY")]
@@ -27,13 +30,21 @@ struct Args {
     #[arg(long, env = "TLS_KEY_PATH", default_value = "/certs/auth-gateway.key")]
     key_path: PathBuf,
 
-    #[arg(long, env = "DATABASE_URL", default_value = "postgres://ash:ash_secret@postgres:5432/ashnet")]
+    #[arg(
+        long,
+        env = "DATABASE_URL",
+        default_value = "postgres://ash:ash_secret@postgres:5432/ashnet"
+    )]
     database_url: String,
 
     #[arg(long, env = "REDIS_URL", default_value = "redis://redis:6379")]
     redis_url: String,
 
-    #[arg(long, env = "ROADHOUSE_CLIENT_ADDR", default_value = "game-node-roadhouse:4433")]
+    #[arg(
+        long,
+        env = "ROADHOUSE_CLIENT_ADDR",
+        default_value = "game-node-roadhouse:4433"
+    )]
     roadhouse_client_addr: String,
 
     #[arg(long, env = "ROUTE_STALE_TIMEOUT_MS", default_value_t = 12_000)]
@@ -44,8 +55,7 @@ struct Args {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 

@@ -53,11 +53,26 @@ mod tests {
     #[test]
     fn verifies_exact_race_class_matrix_and_tank_bans() {
         // Exakte Klassenanzahl pro Rasse gemäß Abschnitt 4.B
-        assert_eq!(allowed_classes_for_race(PlayableRace::WinchesterDescendant).len(), 8);
-        assert_eq!(allowed_classes_for_race(PlayableRace::ManOfLetters).len(), 7);
-        assert_eq!(allowed_classes_for_race(PlayableRace::VampireAlpha).len(), 7);
-        assert_eq!(allowed_classes_for_race(PlayableRace::WerewolfPack).len(), 7);
-        assert_eq!(allowed_classes_for_race(PlayableRace::Shapeshifter).len(), 7);
+        assert_eq!(
+            allowed_classes_for_race(PlayableRace::WinchesterDescendant).len(),
+            8
+        );
+        assert_eq!(
+            allowed_classes_for_race(PlayableRace::ManOfLetters).len(),
+            7
+        );
+        assert_eq!(
+            allowed_classes_for_race(PlayableRace::VampireAlpha).len(),
+            7
+        );
+        assert_eq!(
+            allowed_classes_for_race(PlayableRace::WerewolfPack).len(),
+            7
+        );
+        assert_eq!(
+            allowed_classes_for_race(PlayableRace::Shapeshifter).len(),
+            7
+        );
         assert_eq!(allowed_classes_for_race(PlayableRace::Witch).len(), 6);
         assert_eq!(allowed_classes_for_race(PlayableRace::Fae).len(), 6);
 
@@ -69,12 +84,19 @@ mod tests {
             ClassCategory::MeleeDd,
             ClassCategory::RangedDd,
         ] {
-            let count = CharacterClass::ALL.iter().filter(|c| c.category() == cat).count();
+            let count = CharacterClass::ALL
+                .iter()
+                .filter(|c| c.category() == cat)
+                .count();
             assert_eq!(count, 3, "Expected 3 classes in {cat:?}");
         }
 
         // Tank-Verbot für Gestaltwandler, Hexe und Fee
-        for non_tank_race in [PlayableRace::Shapeshifter, PlayableRace::Witch, PlayableRace::Fae] {
+        for non_tank_race in [
+            PlayableRace::Shapeshifter,
+            PlayableRace::Witch,
+            PlayableRace::Fae,
+        ] {
             for tank_class in [
                 CharacterClass::EisenKrieger,
                 CharacterClass::BlutdurstTank,
@@ -289,7 +311,8 @@ mod tests {
         assert!((shot_after_move - shot1).abs() < f32::EPSILON);
 
         // 2. Runen-Kleriker 20% Schild-Konversion + hartes Schild-Cap
-        let (dmg, shield1) = execute_rune_cleric_salvo(200.0, PlayableRace::ManOfLetters, 0.0, 50.0);
+        let (dmg, shield1) =
+            execute_rune_cleric_salvo(200.0, PlayableRace::ManOfLetters, 0.0, 50.0);
         assert_eq!(dmg, 180);
         assert!((shield1 - 36.0).abs() < 0.01); // 20% von 180 = 36
         let (_, shield_capped) =
@@ -352,7 +375,10 @@ mod tests {
         let stolen = stalker.activate_doppelagent(&mut boss).unwrap();
         assert_eq!(stolen, vec!["Dämonenmacht".to_string()]);
         let mut ally_hp = 50;
-        assert_eq!(NightStalkerState::apply_feigned_friendly_hit(&mut ally_hp, 9999), 1);
+        assert_eq!(
+            NightStalkerState::apply_feigned_friendly_hit(&mut ally_hp, 9999),
+            1
+        );
 
         // Raid-Bosse Malphas & Sariel + Eigenblut-Spende in Himmelsphase
         let mut malphas = MalphasEncounter::new();

@@ -40,7 +40,10 @@ pub fn racial_incoming_damage_multiplier(race: PlayableRace, element: DamageElem
 }
 
 /// Berechnet ausgehenden Schadensbonus (Winchester „Family Business“ gegen Bosse/Dämonen).
-pub fn racial_outgoing_damage_multiplier(race: PlayableRace, target_is_supernatural_boss: bool) -> f32 {
+pub fn racial_outgoing_damage_multiplier(
+    race: PlayableRace,
+    target_is_supernatural_boss: bool,
+) -> f32 {
     if race == PlayableRace::WinchesterDescendant && target_is_supernatural_boss {
         1.15
     } else {
@@ -82,7 +85,11 @@ impl TankAggroTracker {
         let dealt = self.window_damage_dealt.entry(actor).or_insert(0.0);
         *dealt += amount;
 
-        let absorbed = self.window_risk_absorbed.get(&actor).copied().unwrap_or(0.0);
+        let absorbed = self
+            .window_risk_absorbed
+            .get(&actor)
+            .copied()
+            .unwrap_or(0.0);
         let base_mult = if class.category() == crate::character::ClassCategory::Tank {
             // Balance-Faktor: braucht sowohl ausgeteilten Schaden als auch eingestecktes/aktiv geblocktes Risiko!
             if *dealt > 0.0 && absorbed > 0.0 {
@@ -233,9 +240,9 @@ pub fn apply_banish_sheep(
     caster_class: CharacterClass,
     target: &mut EnemyCombatState,
 ) -> Result<&'static str, DomainError> {
-    let spell_name = caster_class
-        .banish_spell_name()
-        .ok_or_else(|| DomainError::BanishRestrictedToRangedDd(caster_class.display_name().to_string()))?;
+    let spell_name = caster_class.banish_spell_name().ok_or_else(|| {
+        DomainError::BanishRestrictedToRangedDd(caster_class.display_name().to_string())
+    })?;
     target.banish_remaining_secs = BANISH_SHEEP_DURATION_SECS;
     target.banish_spell = Some(spell_name.to_string());
     Ok(spell_name)
@@ -261,7 +268,9 @@ pub fn execute_trickster_emergency_taunt(
 ) -> TricksterTauntOutcome {
     let tank_threat_before = aggro.current_threat(tank_id).max(100.0);
     // Kurzfristig Spott übernehmen für exakt den eingehenden Treffer
-    aggro.threat_table.insert(trickster_id, tank_threat_before + 50.0);
+    aggro
+        .threat_table
+        .insert(trickster_id, tank_threat_before + 50.0);
 
     // Treffer einstecken -> Chaos-Sprung (4m Versatz) -> Gruppenbuff berechnen
     let jump_x = current_pos.0 + chaos_angle_rad.cos() * 4.0;
@@ -269,8 +278,12 @@ pub fn execute_trickster_emergency_taunt(
     let group_buff_power = (incoming_boss_hit.max(1) as f32) * 0.35;
 
     // Trolling-Schutz: Nach dem Treffer springt die Aggro automatisch sauber zurück zum Tank!
-    aggro.threat_table.insert(tank_id, tank_threat_before + incoming_boss_hit as f32);
-    aggro.threat_table.insert(trickster_id, tank_threat_before * 0.40);
+    aggro
+        .threat_table
+        .insert(tank_id, tank_threat_before + incoming_boss_hit as f32);
+    aggro
+        .threat_table
+        .insert(trickster_id, tank_threat_before * 0.40);
 
     TricksterTauntOutcome {
         absorbed_damage: incoming_boss_hit,
@@ -392,7 +405,10 @@ pub fn cast_pyromancer_wildfire(
     enemies: &mut [EnemyCombatState],
     epicenter: (f32, f32),
 ) -> Result<usize, DomainError> {
-    let burning_count = enemies.iter().filter(|e| e.flame_stacks >= 1 && e.hp > 0).count();
+    let burning_count = enemies
+        .iter()
+        .filter(|e| e.flame_stacks >= 1 && e.hp > 0)
+        .count();
     if burning_count < PYROMANCER_WILDFIRE_MIN_TARGETS {
         return Err(DomainError::PyromancerWildfireNeedsThreeTargets(
             burning_count,
@@ -499,7 +515,10 @@ impl NightStalkerState {
         Ok(self.focus_resource)
     }
 
-    pub fn activate_doppelagent(&mut self, boss: &mut EnemyCombatState) -> Result<Vec<String>, DomainError> {
+    pub fn activate_doppelagent(
+        &mut self,
+        boss: &mut EnemyCombatState,
+    ) -> Result<Vec<String>, DomainError> {
         if !boss.is_boss || boss.hp_ratio() > 0.50 {
             return Err(DomainError::BossUltiRequiresBossBelowHalfHp);
         }

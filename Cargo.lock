@@ -152,7 +152,11 @@ dependencies = [
  "ash-core",
  "ash-protocol",
  "chrono",
+ "quinn",
+ "rcgen",
  "redis",
+ "rustls",
+ "rustls-pemfile",
  "serde",
  "serde_json",
  "sqlx",
@@ -166,8 +170,10 @@ name = "ash-game-node"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ash-auth-gateway",
  "ash-core",
  "ash-db",
+ "ash-irc-bridge",
  "ash-protocol",
  "clap",
  "hecs",
@@ -184,6 +190,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ash-core",
+ "ash-db",
  "ash-protocol",
  "clap",
  "quinn",
@@ -200,12 +207,7 @@ dependencies = [
  "ash-core",
  "bincode",
  "bytes",
- "quinn",
- "rcgen",
- "rustls",
- "rustls-pemfile",
  "serde",
- "tokio",
  "uuid",
 ]
 
@@ -214,14 +216,13 @@ name = "ash-test-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "ash-auth-gateway",
  "ash-core",
- "ash-db",
- "ash-game-node",
- "ash-irc-bridge",
  "ash-protocol",
  "clap",
  "quinn",
+ "rustls",
+ "rustls-pemfile",
+ "serde",
  "tokio",
  "tracing",
  "tracing-subscriber",

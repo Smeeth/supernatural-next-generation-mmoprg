@@ -6,6 +6,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[package.metadata.ash]
+zone = "server"
+
 [lib]
 name = "ash_irc_bridge"
 path = "src/lib.rs"
@@ -17,6 +20,7 @@ path = "src/main.rs"
 [dependencies]
 ash-core.workspace = true
 ash-protocol.workspace = true
+ash-db.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

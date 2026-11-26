@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Kontext-Hygiene gegen Token-Bloat und Secret-Leaks in KI-Kontextfenstern
+
+target/
+Cargo.lock
+.git/
+
+# Generierte PKI-/mTLS-Zertifikate & Schlüssel
+certs/
+*.pem
+*.key
+*.crt
+
+# Lokale Docker-/Datenbank-Volumes & Secrets
+pgdata/
+redisdata/
+.env
+.env.*
+
+# Kompilierte Binaries & Laufzeit-Dumps
+*.log
+*.pcap
+*.exe
+*.dll
+*.so
+*.dylib

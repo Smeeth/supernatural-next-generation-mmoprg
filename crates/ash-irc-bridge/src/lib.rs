@@ -5,9 +5,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use ash_core::world::IrcSlashCommand;
-use ash_protocol::framing::rpc_call;
-use ash_protocol::messages::{MeshMessage, MeshResponse};
-use ash_protocol::tls::build_quic_client;
+use ash_db::transport::{build_quic_client, rpc_call};
+use ash_protocol::mesh::{MeshMessage, MeshResponse};
 use quinn::{Connection, Endpoint};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -134,7 +133,9 @@ async fn run_bridge_session(cfg: &IrcBridgeConfig, mesh_client: &Endpoint) -> Re
                 };
                 match rpc_call::<MeshMessage, MeshResponse>(
                     conn,
-                    &MeshMessage::PollOmenAlerts { since_seq: last_seq },
+                    &MeshMessage::PollOmenAlerts {
+                        since_seq: last_seq,
+                    },
                 )
                 .await
                 {
