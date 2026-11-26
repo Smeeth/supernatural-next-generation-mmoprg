@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "ash-irc-bridge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "ash_irc_bridge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ash-irc-bridge"
+path = "src/main.rs"
+
+[dependencies]
+ash-core.workspace = true
+ash-protocol.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+quinn.workspace = true

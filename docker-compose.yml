@@ -1,0 +1,264 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Ash-Net: New Lawrence — Fragmentierte Server-Mesh Docker-Compose-Topologie
+
+name: ash-net-new-lawrence
+
+services:
+  # 1. PKI-Init: Erzeugt lokale Ash-Net Root-CA sowie Server-/Client-mTLS-Zertifikate
+  pki-init:
+    build:
+      context: .
+      target: pki-init
+    volumes:
+      - pki-certs:/certs
+
+  # 2. PostgreSQL 16 (isoliert in data-net; automatische SQLx-Migrationen beim Dienststart)
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ash
+      POSTGRES_PASSWORD: ash_secret
+      POSTGRES_DB: ashnet
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - data-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ash -d ashnet"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  # 3. Redis 7 (Sessions, 30s-Handover-Tokens & Live-Cluster-Routing in data-net)
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - data-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  # 4. Eigenständiger ngIRCd mit #roadhouse, #new_lawrence, #zone_salzminen, #men_of_letters
+  ircd:
+    build:
+      context: ./infra/ircd
+    restart: unless-stopped
+    ports:
+      - "6667:6667/tcp"
+    networks:
+      - irc-net
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "6667"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+
+  # 5. Auth-Gateway (Charaktererstellung, Rassen-Klassen-Matrix, 16er Grau-Set & Crash-Fallback)
+  auth-gateway:
+    build:
+      context: .
+      target: auth-gateway
+    restart: unless-stopped
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AUTH_BIND_ADDR: "0.0.0.0:4430"
+      TLS_CERT_PATH: "/certs/auth-gateway.crt"
+      TLS_KEY_PATH: "/certs/auth-gateway.key"
+      DATABASE_URL: "postgres://ash:ash_secret@postgres:5432/ashnet"
+      REDIS_URL: "redis://redis:6379"
+      ROADHOUSE_CLIENT_ADDR: "game-node-roadhouse:4433"
+    volumes:
+      - pki-certs:/certs:ro
+    ports:
+      - "4430:4430/udp"
+    networks:
+      - ash-mesh-net
+      - data-net
+
+  # 6. Primärer Hub/Seed-Knoten: Harvelle's Roadhouse (NODE_ROLE=hub)
+  game-node-roadhouse:
+    build:
+      context: .
+      target: game-node
+    restart: unless-stopped
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ID: "game-node-roadhouse"
+      NODE_ROLE: "hub"
+      ZONES: "zone_roadhouse"
+      CLIENT_BIND_ADDR: "0.0.0.0:4433"
+      CLIENT_PUBLIC_ADDR: "game-node-roadhouse:4433"
+      MESH_BIND_ADDR: "0.0.0.0:5000"
+      MESH_PUBLIC_ADDR: "game-node-roadhouse:5000"
+      TICK_RATE_HZ: "25"
+      TLS_CA_PATH: "/certs/ca.crt"
+      TLS_CERT_PATH: "/certs/game-node-roadhouse.crt"
+      TLS_KEY_PATH: "/certs/game-node-roadhouse.key"
+      DATABASE_URL: "postgres://ash:ash_secret@postgres:5432/ashnet"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - pki-certs:/certs:ro
+    ports:
+      - "4433:4433/udp"
+    networks:
+      - ash-mesh-net
+      - data-net
+
+  # 7. Hinzugespiegelter Zonen-Knoten (NODE_ROLE=mirror, mTLS-Andocken am Hub + Live PLAYER_HANDOVER)
+  game-node-frontier:
+    build:
+      context: .
+      target: game-node
+    restart: unless-stopped
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      game-node-roadhouse:
+        condition: service_started
+    environment:
+      NODE_ID: "game-node-frontier"
+      NODE_ROLE: "mirror"
+      HUB_ADDR: "game-node-roadhouse:5000"
+      ZONES: "zone_new_lawrence_west,zone_salzminen"
+      CLIENT_BIND_ADDR: "0.0.0.0:4434"
+      CLIENT_PUBLIC_ADDR: "game-node-frontier:4434"
+      MESH_BIND_ADDR: "0.0.0.0:5001"
+      MESH_PUBLIC_ADDR: "game-node-frontier:5001"
+      TICK_RATE_HZ: "25"
+      TLS_CA_PATH: "/certs/ca.crt"
+      TLS_CERT_PATH: "/certs/game-node-frontier.crt"
+      TLS_KEY_PATH: "/certs/game-node-frontier.key"
+      DATABASE_URL: "postgres://ash:ash_secret@postgres:5432/ashnet"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - pki-certs:/certs:ro
+    ports:
+      - "4434:4434/udp"
+    networks:
+      - ash-mesh-net
+      - data-net
+
+  # 8. IRC-Bridge (Slash-Kommandos -> mTLS-ECS-Events & Omen-Alarme -> #new_lawrence)
+  irc-bridge:
+    build:
+      context: .
+      target: irc-bridge
+    restart: unless-stopped
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      ircd:
+        condition: service_healthy
+      game-node-roadhouse:
+        condition: service_started
+    environment:
+      IRCD_ADDR: "ircd:6667"
+      IRC_BOT_NICK: "AshBridge"
+      IRC_OPER_USER: "ashoper"
+      IRC_OPER_PASSWORD: "enochian_oper_secret"
+      HUB_MESH_ADDR: "game-node-roadhouse:5000"
+      TLS_CA_PATH: "/certs/ca.crt"
+      TLS_CERT_PATH: "/certs/irc-bridge.crt"
+      TLS_KEY_PATH: "/certs/irc-bridge.key"
+    volumes:
+      - pki-certs:/certs:ro
+    networks:
+      - ash-mesh-net
+      - irc-net
+
+  # 9. Skalierbarer Raid-Knoten (Docker Compose Profile `raids` — Malphas & Sariel)
+  game-node-raid:
+    profiles: ["raids"]
+    build:
+      context: .
+      target: game-node
+    restart: unless-stopped
+    depends_on:
+      pki-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      game-node-roadhouse:
+        condition: service_started
+    environment:
+      NODE_ID: "game-node-raid"
+      NODE_ROLE: "mirror"
+      HUB_ADDR: "game-node-roadhouse:5000"
+      ZONES: "zone_hoellentor_alpha,zone_relais_kathedrale,zone_fegefeuer_riss"
+      CLIENT_BIND_ADDR: "0.0.0.0:4435"
+      CLIENT_PUBLIC_ADDR: "game-node-raid:4435"
+      MESH_BIND_ADDR: "0.0.0.0:5002"
+      MESH_PUBLIC_ADDR: "game-node-raid:5002"
+      TICK_RATE_HZ: "25"
+      TLS_CA_PATH: "/certs/ca.crt"
+      TLS_CERT_PATH: "/certs/game-node-raid.crt"
+      TLS_KEY_PATH: "/certs/game-node-raid.key"
+      DATABASE_URL: "postgres://ash:ash_secret@postgres:5432/ashnet"
+      REDIS_URL: "redis://redis:6379"
+    volumes:
+      - pki-certs:/certs:ro
+    ports:
+      - "4435:4435/udp"
+    networks:
+      - ash-mesh-net
+      - data-net
+
+  # Optionaler E2E-Test-Container (`docker compose --profile test run --rm ash-test-cli`)
+  ash-test-cli:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test-cli
+    depends_on:
+      auth-gateway:
+        condition: service_started
+      game-node-roadhouse:
+        condition: service_started
+      game-node-frontier:
+        condition: service_started
+      irc-bridge:
+        condition: service_started
+    environment:
+      AUTH_ADDR: "auth-gateway:4430"
+      IRC_ADDR: "ircd:6667"
+      TLS_CA_PATH: "/certs/ca.crt"
+    volumes:
+      - pki-certs:/certs:ro
+    networks:
+      - ash-mesh-net
+      - irc-net
+
+networks:
+  ash-mesh-net:
+    driver: bridge
+  data-net:
+    driver: bridge
+    internal: true
+  irc-net:
+    driver: bridge
+
+volumes:
+  pki-certs:
+  pg-data:

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Ash-Net: New Lawrence — Einstiegs-Quests (Datengetrieben)
+
+[[quests]]
+id = "quest_01_salz_auf_die_schwelle"
+title = "Salz auf die Schwelle"
+giver_npc = "npc_jo_harvelle"
+start_zone = "zone_roadhouse"
+summary = "Bauchtasche testen, Schutzlinie mit /salzen an den Bar-Türen ziehen und den lokalen Omen-Index mit /emf am nahen Kolonie-Motel prüfen."
+reward_essence = "RockSaltAsh"
+reward_amount = 5
+steps = [
+    "Bauchtasche (Slot 12) im Roadhouse prüfen und mit Jo Harvelles Echo sprechen",
+    "Schutzlinie per IRC-Kommando /salzen an den Türen des Roadhouse streuen",
+    "Omen-Index per IRC-Kommando /emf am Kolonie-Motel (zone_new_lawrence_west) messen",
+]
+
+[[quests]]
+id = "quest_02_rauschen_auf_kanal_4"
+title = "Rauschen auf Kanal 4"
+giver_npc = "obj_ash_terminal"
+secondary_npc = "npc_ellen_harvelle"
+start_zone = "zone_roadhouse"
+summary = "Ein dämonischer Kult stört den Relais-Mast des IRC-Funks. Einführung in den 4-Rollen-Kampf: Tank-Aggro-Balance, Heilung, Support-Deckung und exklusives 30-Sekunden-Bann-Sheep."
+reward_essence = "RockSaltAsh"
+reward_amount = 8
+steps = [
+    "Live-Mesh-Diagnose an Ashs Terminal im Hinterzimmer abrufen",
+    "Am Relais-Mast in zone_new_lawrence_west Kult-Wächter per 30-Sek.-Bann-Sheep isolieren",
+    "Kult-Saboteur im 4-Rollen-Verbund (Aggro-Balance, Heilung & Support) ausschalten",
+]
+
+[[quests]]
+id = "quest_03_der_erste_schwefelriss"
+title = "Der erste Schwefelriss"
+giver_npc = "npc_ellen_harvelle"
+start_zone = "zone_roadhouse"
+summary = "Ein instabiles Mini-Höllentor am Rand von zone_salzminen droht aufzubrechen. Schließe den Riss, bevor Höllenhunde die Staubstraße überrennen."
+reward_essence = "ConsecratedSilverAndMonsterBlood"
+reward_amount = 5
+steps = [
+    "Einsatzbefehl bei Ellen Harvelles Echo am Auftragsbrett entgegennehmen",
+    "Nach zone_salzminen vorrücken und die erste Welle Höllenhunde abwehren",
+    "Das instabile Mini-Höllentor versiegeln und den Omen-Durchbruch eindämmen",
+]

@@ -1,0 +1,92 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Ash-Net: New Lawrence — Zone & NPC Definitions ("Die Neue Front", Andromeda System)
+
+[[zones]]
+id = "zone_roadhouse"
+name = "Harvelle's Roadhouse (New Lawrence Randbezirk)"
+irc_channel = "#roadhouse"
+safe_sanctuary = true
+default_omen = 0
+boundary_east_x = 100.0
+boundary_east_target = "zone_new_lawrence_west"
+boundary_east_spawn_x = -90.0
+boundary_east_spawn_y = 0.0
+description = "Mit Henochischen Runen und Steinsalz gesicherte 0815-Jäger-Holzbar am Staubrand von New Lawrence. Verbindlicher Start- und Rückzugspunkt aller Jäger."
+
+  [[zones.npcs]]
+  id = "npc_ellen_harvelle"
+  name = "Ellen Harvelles Echo"
+  role = "Tresen & Auftragsbrett"
+  pos_x = 0.0
+  pos_y = 8.0
+  greeting = "Willkommen im Roadhouse auf New Lawrence, Jäger. Da draußen reißen Höllentore auf und die Himmelsgarnison kennt keine Gnade. Halt dein Eisen griffbereit — außer du gehörst zum Fae-Hof."
+
+  [[zones.npcs]]
+  id = "npc_jo_harvelle"
+  name = "Jo Harvelles Echo"
+  role = "Quartiermeisterin"
+  pos_x = -10.0
+  pos_y = 6.0
+  greeting = "Dein 16-teiliges graues Starter-Set sitzt? Gut. Wir werfen hier auf New Lawrence nichts weg — bring mir Steinsalz-Asche, dann weihen wir deine Ausrüstung auf Grün."
+
+  [[zones.npcs]]
+  id = "obj_ash_terminal"
+  name = "Ashs Terminal"
+  role = "Henochisches Mesh-Relais (Hinterzimmer)"
+  pos_x = 12.0
+  pos_y = -6.0
+  greeting = "ASH-NET OS v4.2 [ENOCHIAN-QUIC-MESH STABLE] :: Abfrage aktiver Zonen-Knoten, Omen-Indizes und Kopfgelder bereit."
+
+[[zones]]
+id = "zone_new_lawrence_west"
+name = "New Lawrence West — Staubstraße & Kolonie-Motel"
+irc_channel = "#new_lawrence"
+safe_sanctuary = false
+default_omen = 0
+boundary_west_x = -100.0
+boundary_west_target = "zone_roadhouse"
+boundary_west_spawn_x = 90.0
+boundary_west_spawn_y = 0.0
+boundary_east_x = 100.0
+boundary_east_target = "zone_salzminen"
+boundary_east_spawn_x = -90.0
+boundary_east_spawn_y = 0.0
+description = "Verwitterte Staubstraßen, das flackernde Neon-Schild des Kolonie-Motels und der gestörte IRC-Funk-Relaismast auf Kanal 4."
+
+[[zones]]
+id = "zone_salzminen"
+name = "Salzminen von New Lawrence"
+irc_channel = "#zone_salzminen"
+safe_sanctuary = false
+default_omen = 1
+boundary_west_x = -100.0
+boundary_west_target = "zone_new_lawrence_west"
+boundary_west_spawn_x = 90.0
+boundary_west_spawn_y = 0.0
+description = "Tagebau-Stollen reich an Steinsalz und Silberadern. Am südlichen Grubenrand glüht bereits der erste instabile Schwefelriss."
+
+[[zones]]
+id = "zone_hoellentor_alpha"
+name = "Höllentor Alpha — Der klaffende Krater"
+irc_channel = "#new_lawrence"
+safe_sanctuary = false
+default_omen = 3
+raid_boss = "malphas"
+description = "Raid-Zone: Malphas, Ritter der Hölle, befehligt unverwundbare Höllenhund-Alphas inmitten tobender Schwefel-Novas."
+
+[[zones]]
+id = "zone_relais_kathedrale"
+name = "Relais-Kathedrale der Himmelsgarnison"
+irc_channel = "#men_of_letters"
+safe_sanctuary = false
+default_omen = 3
+raid_boss = "sariel"
+description = "Raid-Zone: Sariel, Zelot der Himmelsgarnison, läutert rücksichtslos Jäger und Monster-Verbündete aus der Luft."
+
+[[zones]]
+id = "zone_fegefeuer_riss"
+name = "Fegefeuer-Riss — Graue Einöde"
+irc_channel = "#men_of_letters"
+safe_sanctuary = false
+default_omen = 2
+description = "Raid-Zone: Quelle von Fegefeuer-Glut für Aufwertungen der Gold-Stufe (Colt-Klasse)."

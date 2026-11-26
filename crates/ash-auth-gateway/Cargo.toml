@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "ash-auth-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "ash_auth_gateway"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ash-auth-gateway"
+path = "src/main.rs"
+
+[dependencies]
+ash-core.workspace = true
+ash-protocol.workspace = true
+ash-db.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
+quinn.workspace = true
+argon2.workspace = true
+rand.workspace = true
+uuid.workspace = true

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[package]
+name = "ash-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ash-core.workspace = true
+tokio.workspace = true
+bytes.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+bincode.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+rustls-pemfile.workspace = true
+rcgen.workspace = true
+uuid.workspace = true
